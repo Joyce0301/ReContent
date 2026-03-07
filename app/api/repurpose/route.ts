@@ -79,9 +79,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ results });
   } catch (error) {
-    console.error("repurpose error", error);
+    console.error("repurpose error:", error);
+    const errorMessage = error instanceof Error ? error.message : "未知错误";
     return NextResponse.json(
-      { error: "生成过程中出现错误，请稍后重试" },
+      { error: `生成过程中出现错误: ${errorMessage}` },
       { status: 500 }
     );
   }
@@ -260,7 +261,7 @@ async function generateWithDeepSeek(
     tone === "formal" ? "正式商务" : tone === "casual" ? "轻松口语" : "中性专业";
 
   const systemPrompt =
-    "你是一个专业的中英双语内容营销编辑，擅长根据不同平台的规则重写内容。输出必须是严格的 JSON 格式。";
+    "你是一个专业的中英双语内容营销编辑，擅长根据不同平台的规则重写内容。你必须只返回 JSON 格式的内容，不要包含任何 Markdown 代码块包裹或解释性文字。";
 
   const userPrompt = `
 原始长内容如下（可能为中文或英文）：
@@ -299,36 +300,55 @@ ${source.slice(0, 8000)}
 }
 
 注意：
-- 一定只返回 JSON，不要出现任何解释或多余文字。
 - 字段名必须是英文。
+- 只返回 JSON 字符串本身，不要包含 \`\`\`json 标记。
 `;
 
-  const response = await deepseek!.chat.completions.create({
-    model: "deepseek-chat",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    temperature: 0.7,
-    response_format: { type: "json_object" }
-  });
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${deepseekApiKey}`
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.7
+      })
+    });
 
-  const raw = response.choices[0]?.message?.content;
-  if (!raw) {
-    throw new Error("DeepSeek 返回为空");
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeepSeek API 响应错误: ${response.status} ${errorText}`);
+    }
+
+    const data = (await response.json()) as any;
+    const raw = data.choices?.[0]?.message?.content;
+    
+    if (!raw) {
+      throw new Error("DeepSeek 返回内容为空");
+    }
+
+    // 预处理：移除可能出现的 Markdown 标记
+    const cleanedJson = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    const parsed = JSON.parse(cleanedJson) as {
+      results: {
+        platform: PlatformKey;
+        title?: string;
+        content: string;
+      }[];
+    };
+
+    return parsed.results.filter(r => platforms.includes(r.platform));
+  } catch (err) {
+    console.error("DeepSeek generation error:", err);
+    throw err;
   }
-
-  const parsed = JSON.parse(raw) as {
-    results: {
-      platform: PlatformKey;
-      title?: string;
-      content: string;
-    }[];
-  };
-
-  const filtered = parsed.results.filter(r => platforms.includes(r.platform));
-
-  return filtered;
 }
 function generateMockResults(
   source: string,
