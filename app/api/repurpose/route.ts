@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { extractContentFromUrl } from "./content-extraction";
 
 type PlatformKey = "twitter" | "linkedin" | "xiaohongshu";
 
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
     const sourceContent =
       body.mode === "text"
         ? body.text!.trim()
-        : await fetchAndExtractText(body.url!);
+        : await extractContentFromUrl(body.url!);
 
     if (!sourceContent) {
       return NextResponse.json(
@@ -71,25 +72,6 @@ export async function POST(req: Request) {
       { error: "生成过程中出现错误，请稍后重试" },
       { status: 500 }
     );
-  }
-}
-
-async function fetchAndExtractText(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    const cleaned = html
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    return cleaned.slice(0, 20000);
-  } catch {
-    return null;
   }
 }
 
@@ -231,4 +213,3 @@ ${baseIntro}
     };
   });
 }
-
