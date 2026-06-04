@@ -15,7 +15,11 @@ export function SegmentedControl<T extends string>({
   onChange
 }: SegmentedControlProps<T>) {
   return (
-    <div className="inline-flex rounded-xl border border-slate-800 bg-slate-950/80 p-1">
+    <div
+      role="radiogroup"
+      aria-label="输入模式"
+      className="inline-flex rounded-xl border border-slate-800 bg-slate-950/80 p-1"
+    >
       {options.map(option => {
         const active = option.value === value;
 
@@ -23,6 +27,8 @@ export function SegmentedControl<T extends string>({
           <button
             key={option.value}
             type="button"
+            role="radio"
+            aria-checked={active}
             onClick={() => onChange(option.value)}
             className={`min-w-[92px] rounded-lg px-3 py-2 text-xs font-medium transition ${
               active

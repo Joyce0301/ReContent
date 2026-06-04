@@ -21,6 +21,10 @@ export default function HomePage() {
   const [tone, setTone] = useState<ToneKey>("neutral");
   const [results, setResults] = useState<RepurposeResult[]>([]);
   const [activePlatform, setActivePlatform] = useState<PlatformKey | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    platform: PlatformKey;
+    status: "success" | "error";
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -67,11 +71,12 @@ export default function HomePage() {
     });
   };
 
-  const handleCopy = async (text: string) => {
+  const handleCopy = async (platform: PlatformKey, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setCopyFeedback({ platform, status: "success" });
     } catch {
-      // ignore
+      setCopyFeedback({ platform, status: "error" });
     }
   };
 
@@ -93,11 +98,25 @@ export default function HomePage() {
     });
   }, [results]);
 
+  useEffect(() => {
+    if (!copyFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopyFeedback(current =>
+        current?.platform === copyFeedback.platform ? null : current
+      );
+    }, 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [copyFeedback]);
+
   return (
-    <main className="flex flex-1 flex-col gap-6">
+    <main className="flex flex-1 flex-col gap-7">
       <RecontentHeader />
 
-      <section className="grid flex-1 gap-6 md:grid-cols-[minmax(0,0.92fr)_minmax(0,1.18fr)]">
+      <section className="grid flex-1 items-stretch gap-6 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.16fr)]">
         <InputPanel
           inputMode={inputMode}
           sourceText={sourceText}
@@ -118,15 +137,18 @@ export default function HomePage() {
 
         <ResultSurface
           activePlatform={activePlatform}
+          copyStatus={
+            copyFeedback?.platform === activePlatform ? copyFeedback.status : null
+          }
           results={results}
           onActivePlatformChange={setActivePlatform}
           onCopy={handleCopy}
         />
       </section>
 
-      <footer className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-900 pt-3 text-[11px] text-slate-500">
+      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-900/90 pt-4 text-[11px] leading-5 text-slate-500">
         <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
-        <span>后续可扩展历史记录、账户体系与团队协作能力。</span>
+        <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
       </footer>
     </main>
   );

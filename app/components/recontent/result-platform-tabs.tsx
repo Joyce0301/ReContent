@@ -29,8 +29,8 @@ export function ResultPlatformTabs({
             aria-pressed={isActive}
             className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
               isActive
-                ? "border-slate-500 bg-slate-800 text-slate-100"
-                : "border-slate-800 bg-slate-950/70 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                ? "border-slate-500/90 bg-slate-800 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                : "border-slate-800/90 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
             }`}
           >
             <span
@@ -42,7 +42,7 @@ export function ResultPlatformTabs({
             >
               {PLATFORM_BADGES[result.platform]}
             </span>
-            <span className="font-medium">
+            <span className="font-medium tracking-[0.01em]">
               {PLATFORM_SHORT_LABELS[result.platform]}
             </span>
           </button>
