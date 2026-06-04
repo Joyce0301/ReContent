@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { extractContentFromUrl } from "./content-extraction";
+import { createKimiClient } from "./kimi-client";
 
 type PlatformKey = "twitter" | "linkedin" | "xiaohongshu";
 
@@ -28,9 +29,8 @@ const openai = openaiApiKey
   : null;
 
 const kimi = kimiApiKey
-  ? new OpenAI({
-      apiKey: kimiApiKey,
-      baseURL: "https://api.moonshot.cn/v1"
+  ? createKimiClient({
+      apiKey: kimiApiKey
     })
   : null;
 
@@ -109,7 +109,6 @@ async function generateWithModel(
   platforms: PlatformKey[],
   tone: RequestBody["tone"]
 ) {
-  const client = provider === "kimi" ? kimi : openai;
   const { model, sourceCharLimit } = getProviderConfig(provider);
   const toneLabel =
     tone === "formal" ? "正式商务" : tone === "casual" ? "轻松口语" : "中性专业";
@@ -158,17 +157,21 @@ ${source.slice(0, sourceCharLimit)}
 - 字段名必须是英文。
 `;
 
-  const response = await client!.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    temperature: 0.7,
-    response_format: { type: "json_object" }
-  });
+  const raw =
+    provider === "kimi"
+      ? await kimi!.createJsonCompletion({
+          model,
+          systemPrompt,
+          userPrompt,
+          temperature: 0.7
+        })
+      : await createOpenAiCompletion({
+          client: openai!,
+          model,
+          systemPrompt,
+          userPrompt
+        });
 
-  const raw = response.choices[0]?.message?.content;
   if (!raw) {
     throw new Error(`${provider} 返回为空`);
   }
@@ -184,6 +187,30 @@ ${source.slice(0, sourceCharLimit)}
   const filtered = parsed.results.filter(r => platforms.includes(r.platform));
 
   return filtered;
+}
+
+async function createOpenAiCompletion({
+  client,
+  model,
+  systemPrompt,
+  userPrompt
+}: {
+  client: OpenAI;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    temperature: 0.7,
+    response_format: { type: "json_object" }
+  });
+
+  return response.choices[0]?.message?.content ?? null;
 }
 
 function getProviderConfig(provider: Exclude<AiProvider, "mock">): ProviderConfig {
