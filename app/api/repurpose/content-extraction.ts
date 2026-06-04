@@ -9,6 +9,7 @@ type ExtractionOptions = {
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36";
 
+const MIN_MEANINGFUL_LENGTH = 80;
 const MIN_EXTRACTED_LENGTH = 200;
 const MAX_EXTRACTED_LENGTH = 20000;
 
@@ -25,7 +26,16 @@ export async function extractContentFromUrl(
     return cleanExtractedText(jinaText).slice(0, MAX_EXTRACTED_LENGTH);
   }
 
-  return fetchAndExtractHtml(normalizedUrl, fetcher);
+  const htmlText = await fetchAndExtractHtml(normalizedUrl, fetcher);
+  if (htmlText) {
+    return htmlText;
+  }
+
+  if (isMeaningfulText(jinaText)) {
+    return cleanExtractedText(jinaText).slice(0, MAX_EXTRACTED_LENGTH);
+  }
+
+  return null;
 }
 
 function normalizeHttpUrl(url: string): string | null {
@@ -195,4 +205,21 @@ function normalizePageTitle(pageTitle?: string): string {
 
 function isUsefulText(text: string | null): text is string {
   return Boolean(text && cleanExtractedText(text).length >= MIN_EXTRACTED_LENGTH);
+}
+
+function isMeaningfulText(text: string | null): text is string {
+  if (!text) return false;
+
+  const cleaned = cleanExtractedText(text);
+  if (cleaned.length < MIN_MEANINGFUL_LENGTH) {
+    return false;
+  }
+
+  const paragraphCount = cleaned
+    .split(/\n+/)
+    .map(part => part.trim())
+    .filter(part => part.length >= 20).length;
+  const sentenceCount = (cleaned.match(/[。！？.!?]/g) ?? []).length;
+
+  return paragraphCount >= 2 || sentenceCount >= 2;
 }
