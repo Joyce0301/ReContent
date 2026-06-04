@@ -13,6 +13,10 @@ type RequestBody = {
 };
 
 type AiProvider = "kimi" | "openai" | "mock";
+type ProviderConfig = {
+  model: string;
+  sourceCharLimit: number;
+};
 
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const kimiApiKey = process.env.KIMI_API_KEY;
@@ -80,6 +84,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ results });
   } catch (error) {
     console.error("repurpose error", error);
+
+    const providerError = toProviderErrorMessage(error);
+    if (providerError) {
+      return NextResponse.json({ error: providerError }, { status: 502 });
+    }
+
     return NextResponse.json(
       { error: "生成过程中出现错误，请稍后重试" },
       { status: 500 }
@@ -100,7 +110,7 @@ async function generateWithModel(
   tone: RequestBody["tone"]
 ) {
   const client = provider === "kimi" ? kimi : openai;
-  const model = provider === "kimi" ? "moonshot-v1-8k" : "gpt-4.1-mini";
+  const { model, sourceCharLimit } = getProviderConfig(provider);
   const toneLabel =
     tone === "formal" ? "正式商务" : tone === "casual" ? "轻松口语" : "中性专业";
 
@@ -110,7 +120,7 @@ async function generateWithModel(
   const userPrompt = `
 原始长内容如下（可能为中文或英文）：
 ---
-${source.slice(0, 8000)}
+${source.slice(0, sourceCharLimit)}
 ---
 
 请基于上述内容，按以下平台和要求生成重制内容：
@@ -174,6 +184,65 @@ ${source.slice(0, 8000)}
   const filtered = parsed.results.filter(r => platforms.includes(r.platform));
 
   return filtered;
+}
+
+function getProviderConfig(provider: Exclude<AiProvider, "mock">): ProviderConfig {
+  if (provider === "kimi") {
+    return {
+      model: process.env.KIMI_MODEL || "moonshot-v1-32k",
+      sourceCharLimit: 12000
+    };
+  }
+
+  return {
+    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    sourceCharLimit: 8000
+  };
+}
+
+function toProviderErrorMessage(error: unknown): string | null {
+  const message =
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : "";
+
+  if (!message) {
+    return null;
+  }
+
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("context length") ||
+    normalized.includes("maximum context length") ||
+    normalized.includes("too many tokens") ||
+    normalized.includes("max context") ||
+    normalized.includes("prompt is too long")
+  ) {
+    return "内容过长，已超过当前模型的处理上限，请缩短输入内容后重试";
+  }
+
+  if (
+    normalized.includes("invalid api key") ||
+    normalized.includes("incorrect api key") ||
+    normalized.includes("unauthorized") ||
+    normalized.includes("authentication")
+  ) {
+    return "AI 服务密钥配置有误，请检查 Cloudflare 环境变量";
+  }
+
+  if (
+    normalized.includes("rate limit") ||
+    normalized.includes("quota") ||
+    normalized.includes("insufficient_quota")
+  ) {
+    return "AI 服务当前限流或额度不足，请稍后重试";
+  }
+
+  return null;
 }
 
 function generateMockResults(
