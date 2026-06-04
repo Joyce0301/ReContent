@@ -12,11 +12,21 @@ type RequestBody = {
   tone: "neutral" | "formal" | "casual";
 };
 
+type AiProvider = "kimi" | "openai" | "mock";
+
 const openaiApiKey = process.env.OPENAI_API_KEY;
+const kimiApiKey = process.env.KIMI_API_KEY;
 
 const openai = openaiApiKey
   ? new OpenAI({
       apiKey: openaiApiKey
+    })
+  : null;
+
+const kimi = kimiApiKey
+  ? new OpenAI({
+      apiKey: kimiApiKey,
+      baseURL: "https://api.moonshot.cn/v1"
     })
   : null;
 
@@ -61,9 +71,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const results = openai
-      ? await generateWithOpenAI(sourceContent, body.platforms, body.tone)
-      : generateMockResults(sourceContent, body.platforms, body.tone);
+    const provider = getAiProvider();
+    const results =
+      provider === "mock"
+        ? generateMockResults(sourceContent, body.platforms, body.tone)
+        : await generateWithModel(provider, sourceContent, body.platforms, body.tone);
 
     return NextResponse.json({ results });
   } catch (error) {
@@ -75,11 +87,20 @@ export async function POST(req: Request) {
   }
 }
 
-async function generateWithOpenAI(
+function getAiProvider(): AiProvider {
+  if (kimi) return "kimi";
+  if (openai) return "openai";
+  return "mock";
+}
+
+async function generateWithModel(
+  provider: Exclude<AiProvider, "mock">,
   source: string,
   platforms: PlatformKey[],
   tone: RequestBody["tone"]
 ) {
+  const client = provider === "kimi" ? kimi : openai;
+  const model = provider === "kimi" ? "moonshot-v1-8k" : "gpt-4.1-mini";
   const toneLabel =
     tone === "formal" ? "正式商务" : tone === "casual" ? "轻松口语" : "中性专业";
 
@@ -127,8 +148,8 @@ ${source.slice(0, 8000)}
 - 字段名必须是英文。
 `;
 
-  const response = await openai!.chat.completions.create({
-    model: "gpt-4.1-mini",
+  const response = await client!.chat.completions.create({
+    model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
@@ -139,7 +160,7 @@ ${source.slice(0, 8000)}
 
   const raw = response.choices[0]?.message?.content;
   if (!raw) {
-    throw new Error("OpenAI 返回为空");
+    throw new Error(`${provider} 返回为空`);
   }
 
   const parsed = JSON.parse(raw) as {
