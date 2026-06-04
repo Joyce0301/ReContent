@@ -10,12 +10,14 @@ export type RepurposeResult = {
   content: string;
 };
 
-export const PLATFORM_OPTIONS: Array<{
+export type PlatformOption = {
   key: PlatformKey;
   label: string;
   shortLabel: string;
   resultBadge: string;
-}> = [
+};
+
+export const PLATFORM_OPTIONS: PlatformOption[] = [
   {
     key: "twitter",
     label: "Twitter / X 推文串",
@@ -47,6 +49,11 @@ export const PLATFORM_LABELS: Record<PlatformKey, string> = Object.fromEntries(
 export const PLATFORM_BADGES: Record<PlatformKey, string> = Object.fromEntries(
   PLATFORM_OPTIONS.map(option => [option.key, option.resultBadge])
 ) as Record<PlatformKey, string>;
+
+export const PLATFORM_SHORT_LABELS: Record<PlatformKey, string> =
+  Object.fromEntries(
+    PLATFORM_OPTIONS.map(option => [option.key, option.shortLabel])
+  ) as Record<PlatformKey, string>;
 
 export const TONE_OPTIONS: Array<{ key: ToneKey; label: string }> = [
   { key: "neutral", label: "中性专业" },
