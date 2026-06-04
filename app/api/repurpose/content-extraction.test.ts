@@ -70,3 +70,23 @@ test("falls back to local HTML extraction when Jina content is too short", async
   assert.ok(!result?.includes("Home Login Register"));
   assert.equal(fetchMock.calls.length, 2);
 });
+
+test("returns short but meaningful Jina content when fallback HTML extraction fails", async () => {
+  const shortArticle = [
+    "Short Article",
+    "A concise article with one strong takeaway and a clear summary paragraph.",
+    "The text is shorter than the long-form threshold, but it is still meaningful content."
+  ].join("\n\n");
+  const fetchMock = createFetchMock([
+    makeResponse(shortArticle),
+    makeResponse("<html><head><title>Blocked</title></head><body></body></html>")
+  ]);
+
+  const result = await extractContentFromUrl("https://example.com/short-post", {
+    fetcher: fetchMock
+  });
+
+  assert.ok(result?.includes("Short Article"));
+  assert.ok(result?.includes("clear summary paragraph"));
+  assert.equal(fetchMock.calls.length, 2);
+});
