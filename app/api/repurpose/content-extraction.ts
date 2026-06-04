@@ -21,6 +21,11 @@ export async function extractContentFromUrl(
   if (!normalizedUrl) return null;
 
   const fetcher = options.fetcher ?? fetch;
+  const siteSpecificText = await fetchSiteSpecificContent(normalizedUrl, fetcher);
+  if (isUsefulText(siteSpecificText) || isMeaningfulText(siteSpecificText)) {
+    return cleanExtractedText(siteSpecificText).slice(0, MAX_EXTRACTED_LENGTH);
+  }
+
   const jinaText = await fetchWithJinaReader(normalizedUrl, fetcher);
   if (isUsefulText(jinaText)) {
     return cleanExtractedText(jinaText).slice(0, MAX_EXTRACTED_LENGTH);
@@ -108,6 +113,101 @@ async function fetchAndExtractHtml(
     if (!isUsefulText(cleaned)) return null;
 
     return cleaned.slice(0, MAX_EXTRACTED_LENGTH);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSiteSpecificContent(
+  url: string,
+  fetcher: Fetcher
+): Promise<string | null> {
+  const joinQqText = await fetchJoinQqPostDetail(url, fetcher);
+  if (joinQqText) {
+    return joinQqText;
+  }
+
+  return null;
+}
+
+async function fetchJoinQqPostDetail(
+  url: string,
+  fetcher: Fetcher
+): Promise<string | null> {
+  const parsedUrl = new URL(url);
+  if (parsedUrl.hostname !== "join.qq.com" || parsedUrl.pathname !== "/post_detail.html") {
+    return null;
+  }
+
+  const postId = parsedUrl.searchParams.get("postid");
+  if (!postId) {
+    return null;
+  }
+
+  try {
+    const res = await fetcher(
+      `https://join.qq.com/api/v1/jobDetails/getJobDetailsByPostId?postId=${encodeURIComponent(postId)}`,
+      {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      }
+    );
+
+    if (!res.ok) return null;
+
+    const payload = (await res.json()) as {
+      status?: number;
+      data?: {
+        title?: string;
+        tidName?: string;
+        projectName?: string;
+        introduction?: string;
+        desc?: string;
+        request?: string;
+        internBonus?: string | null;
+        graduateBonus?: string | null;
+        recruitCityList?: string[];
+        workCityList?: string[];
+        intentionBGDList?: Array<{
+          showTitle?: string;
+          showTxt?: string;
+        }>;
+      };
+    };
+
+    if (payload.status !== 0 || !payload.data) {
+      return null;
+    }
+
+    const detail = payload.data;
+    const departmentSummary = (detail.intentionBGDList ?? [])
+      .map(item => [item.showTitle, item.showTxt].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("\n");
+
+    return cleanExtractedText(
+      [
+        detail.title,
+        [detail.tidName, detail.projectName].filter(Boolean).join(" "),
+        detail.introduction,
+        detail.desc ? `岗位描述\n${detail.desc}` : "",
+        detail.request ? `岗位要求\n${detail.request}` : "",
+        detail.internBonus ? `加分项或注意事项\n${detail.internBonus}` : "",
+        detail.graduateBonus &&
+        detail.graduateBonus !== detail.internBonus
+          ? `加分项或注意事项\n${detail.graduateBonus}`
+          : "",
+        detail.recruitCityList?.length
+          ? `参加面试的城市\n${detail.recruitCityList.join("、")}`
+          : "",
+        detail.workCityList?.length ? `工作地点\n${detail.workCityList.join("、")}` : "",
+        departmentSummary ? `招聘部门和工作地\n${departmentSummary}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    );
   } catch {
     return null;
   }
