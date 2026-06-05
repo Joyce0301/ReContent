@@ -8,9 +8,14 @@ body {
 }
 
 body {
-  @apply bg-slate-950 text-slate-50 antialiased;
+  background-color: #0b0d10;
+  background-image:
+    radial-gradient(circle at top center, rgba(122, 162, 255, 0.14), transparent 34%),
+    linear-gradient(180deg, #111418 0%, #0d1014 28%, #0b0d10 58%, #08090c 100%);
+  color: #f5f5f7;
+  @apply antialiased;
 }
 
 ::selection {
-  @apply bg-brand-500/40;
+  background-color: rgb(110 168 255 / 24%);
 }
