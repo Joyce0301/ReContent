@@ -4,6 +4,8 @@ import { FilterChipGroup } from "./filter-chip-group";
 import { SegmentedControl } from "./segmented-control";
 import {
   type InputMode,
+  MAX_CUSTOM_INSTRUCTION_LENGTH,
+  PERSONALIZATION_EXAMPLES,
   PLATFORM_OPTIONS,
   type PlatformKey,
   TONE_OPTIONS,
@@ -16,6 +18,7 @@ type InputPanelProps = {
   sourceUrl: string;
   selectedPlatforms: PlatformKey[];
   tone: ToneKey;
+  customInstruction: string;
   isPending: boolean;
   error: string | null;
   hasContent: boolean;
@@ -25,6 +28,7 @@ type InputPanelProps = {
   onTogglePlatform: (platform: PlatformKey) => void;
   onSelectAllPlatforms: () => void;
   onToneChange: (tone: ToneKey) => void;
+  onCustomInstructionChange: (value: string) => void;
   onSubmit: () => void;
 };
 
@@ -39,6 +43,7 @@ export function InputPanel({
   sourceUrl,
   selectedPlatforms,
   tone,
+  customInstruction,
   isPending,
   error,
   hasContent,
@@ -48,13 +53,14 @@ export function InputPanel({
   onTogglePlatform,
   onSelectAllPlatforms,
   onToneChange,
+  onCustomInstructionChange,
   onSubmit
 }: InputPanelProps) {
   return (
-    <div className="flex flex-col gap-5 rounded-[26px] border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.72)_0%,rgba(15,23,42,0.5)_100%)] p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.04)] sm:p-5">
+    <div className="flex flex-col gap-5 rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.96)_0%,rgba(241,245,249,0.92)_48%,rgba(226,232,240,0.92)_100%)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_24px_64px_rgba(148,163,184,0.18)] sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-sm font-medium text-slate-100">输入内容</h2>
+          <h2 className="text-sm font-medium text-slate-900">输入内容</h2>
           <p className="mt-1 text-xs leading-5 text-slate-500">
             先放入原始内容，再决定要送去哪些平台，以及成稿的表达语气。
           </p>
@@ -69,7 +75,7 @@ export function InputPanel({
       {inputMode === "text" ? (
         <textarea
           aria-label="待重制的原始文本"
-          className="min-h-[220px] w-full resize-none rounded-[20px] border border-slate-800 bg-slate-950/65 px-4 py-3.5 text-sm leading-7 text-slate-100 outline-none ring-brand-500/60 placeholder:text-slate-500 focus:border-brand-500 focus:ring-1"
+          className="min-h-[220px] w-full resize-none rounded-[22px] border border-slate-200 bg-white/75 px-4 py-3.5 text-sm leading-7 text-slate-900 outline-none ring-sky-500/30 placeholder:text-slate-400 focus:border-sky-400 focus:ring-2"
           placeholder="在这里粘贴你的长内容（博客、脚本、稿件等），建议 300-3000 字。"
           value={sourceText}
           onChange={event => onSourceTextChange(event.target.value)}
@@ -77,7 +83,7 @@ export function InputPanel({
       ) : (
         <input
           aria-label="待抓取正文的链接地址"
-          className="w-full rounded-[20px] border border-slate-800 bg-slate-950/65 px-4 py-3.5 text-sm text-slate-100 outline-none ring-brand-500/60 placeholder:text-slate-500 focus:border-brand-500 focus:ring-1"
+          className="w-full rounded-[22px] border border-slate-200 bg-white/75 px-4 py-3.5 text-sm text-slate-900 outline-none ring-sky-500/30 placeholder:text-slate-400 focus:border-sky-400 focus:ring-2"
           placeholder="粘贴博客文章或长内容页面的链接，我们会自动抓取正文。"
           value={sourceUrl}
           onChange={event => onSourceUrlChange(event.target.value)}
@@ -85,17 +91,17 @@ export function InputPanel({
       )}
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <section className="rounded-[20px] border border-slate-800/90 bg-slate-950/55 p-3.5">
+        <section className="rounded-[22px] border border-slate-200/80 bg-white/55 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h3 className="text-xs font-medium text-slate-200">目标平台</h3>
+              <h3 className="text-xs font-medium text-slate-900">目标平台</h3>
               <p className="mt-1 text-[11px] text-slate-500">
                 最多同时生成 3 个平台版本。
               </p>
             </div>
             <button
               type="button"
-              className="text-[11px] font-medium text-slate-500 transition hover:text-slate-300"
+              className="text-[11px] font-medium text-slate-500 transition hover:text-slate-700"
               onClick={onSelectAllPlatforms}
             >
               全选
@@ -114,9 +120,9 @@ export function InputPanel({
           </div>
         </section>
 
-        <section className="rounded-[20px] border border-slate-800/90 bg-slate-950/55 p-3.5">
+        <section className="rounded-[22px] border border-slate-200/80 bg-white/55 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
           <div>
-            <h3 className="text-xs font-medium text-slate-200">语气风格</h3>
+            <h3 className="text-xs font-medium text-slate-900">语气风格</h3>
             <p className="mt-1 text-[11px] text-slate-500">
               控制输出的表达方式与正式程度。
             </p>
@@ -127,6 +133,35 @@ export function InputPanel({
               selectedKeys={[tone]}
               onToggle={key => onToneChange(key)}
             />
+          </div>
+          <div className="mt-4 border-t border-slate-300/80 pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-medium text-slate-900">个性化要求</h4>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                Optional
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              补充你希望成稿更像什么风格、口吻或表达方向。
+            </p>
+            <textarea
+              aria-label="个性化要求输入框"
+              maxLength={MAX_CUSTOM_INSTRUCTION_LENGTH}
+              className="mt-3 min-h-[112px] w-full resize-none rounded-[18px] border border-slate-300 bg-white/80 px-4 py-3 text-sm leading-7 text-slate-900 outline-none ring-sky-500/30 placeholder:text-slate-400 focus:border-sky-400 focus:ring-2"
+              placeholder="例如：更像创始人公开发言，保留专业判断，但更有故事感。"
+              value={customInstruction}
+              onChange={event => onCustomInstructionChange(event.target.value)}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {PERSONALIZATION_EXAMPLES.map(example => (
+                <span
+                  key={example}
+                  className="rounded-full border border-slate-300 bg-white/75 px-2.5 py-1 text-[10px] text-slate-600"
+                >
+                  {example}
+                </span>
+              ))}
+            </div>
           </div>
         </section>
       </div>
@@ -140,7 +175,7 @@ export function InputPanel({
             type="button"
             onClick={onSubmit}
             disabled={!hasContent || selectedPlatforms.length === 0 || isPending}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-brand-500 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-brand-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-xs font-medium text-white shadow-[0_12px_30px_rgba(14,165,233,0.22)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isPending ? (
               <>

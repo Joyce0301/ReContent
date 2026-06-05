@@ -29,15 +29,15 @@ export function ResultPlatformTabs({
             aria-pressed={isActive}
             className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
               isActive
-                ? "border-slate-500/90 bg-slate-800 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                : "border-slate-800/90 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                ? "border-sky-200 bg-sky-50 text-sky-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+                : "border-slate-200 bg-white/80 text-slate-500 hover:border-slate-300 hover:text-slate-700"
             }`}
           >
             <span
               className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] ${
                 isActive
-                  ? "bg-slate-700 text-slate-100"
-                  : "bg-slate-900 text-slate-400"
+                  ? "bg-sky-100 text-sky-700"
+                  : "bg-slate-100 text-slate-500"
               }`}
             >
               {PLATFORM_BADGES[result.platform]}

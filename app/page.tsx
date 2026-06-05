@@ -16,6 +16,7 @@ export default function HomePage() {
   const [inputMode, setInputMode] = useState<InputMode>("text");
   const [sourceText, setSourceText] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [customInstruction, setCustomInstruction] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] =
     useState<PlatformKey[]>(DEFAULT_SELECTED_PLATFORMS);
   const [tone, setTone] = useState<ToneKey>("neutral");
@@ -54,7 +55,8 @@ export default function HomePage() {
             text: inputMode === "text" ? sourceText : undefined,
             url: inputMode === "url" ? sourceUrl : undefined,
             platforms: selectedPlatforms,
-            tone
+            tone,
+            customInstruction
           })
         });
 
@@ -123,6 +125,7 @@ export default function HomePage() {
           sourceUrl={sourceUrl}
           selectedPlatforms={selectedPlatforms}
           tone={tone}
+          customInstruction={customInstruction}
           isPending={isPending}
           error={error}
           hasContent={hasContent}
@@ -132,6 +135,7 @@ export default function HomePage() {
           onTogglePlatform={togglePlatform}
           onSelectAllPlatforms={() => setSelectedPlatforms(DEFAULT_SELECTED_PLATFORMS)}
           onToneChange={setTone}
+          onCustomInstructionChange={setCustomInstruction}
           onSubmit={handleRepurpose}
         />
 
@@ -146,7 +150,7 @@ export default function HomePage() {
         />
       </section>
 
-      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-900/90 pt-4 text-[11px] leading-5 text-slate-500">
+      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/90 pt-4 text-[11px] leading-5 text-slate-500">
         <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
         <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
       </footer>
