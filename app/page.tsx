@@ -150,7 +150,7 @@ export default function HomePage() {
         />
       </section>
 
-      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-900/90 pt-4 text-[11px] leading-5 text-slate-500">
+      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/90 pt-4 text-[11px] leading-5 text-slate-500">
         <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
         <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
       </footer>
