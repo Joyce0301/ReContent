@@ -4,6 +4,14 @@ export type InputMode = "text" | "url";
 
 export type ToneKey = "neutral" | "formal" | "casual";
 
+export const MAX_CUSTOM_INSTRUCTION_LENGTH = 300;
+
+export const PERSONALIZATION_EXAMPLES = [
+  "更像创始人发言",
+  "更故事化一点",
+  "更适合创业者受众"
+] as const;
+
 export type RepurposeResult = {
   platform: PlatformKey;
   title?: string;

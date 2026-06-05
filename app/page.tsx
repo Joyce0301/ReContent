@@ -16,6 +16,7 @@ export default function HomePage() {
   const [inputMode, setInputMode] = useState<InputMode>("text");
   const [sourceText, setSourceText] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [customInstruction, setCustomInstruction] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] =
     useState<PlatformKey[]>(DEFAULT_SELECTED_PLATFORMS);
   const [tone, setTone] = useState<ToneKey>("neutral");
@@ -54,7 +55,8 @@ export default function HomePage() {
             text: inputMode === "text" ? sourceText : undefined,
             url: inputMode === "url" ? sourceUrl : undefined,
             platforms: selectedPlatforms,
-            tone
+            tone,
+            customInstruction
           })
         });
 
@@ -123,6 +125,7 @@ export default function HomePage() {
           sourceUrl={sourceUrl}
           selectedPlatforms={selectedPlatforms}
           tone={tone}
+          customInstruction={customInstruction}
           isPending={isPending}
           error={error}
           hasContent={hasContent}
@@ -132,6 +135,7 @@ export default function HomePage() {
           onTogglePlatform={togglePlatform}
           onSelectAllPlatforms={() => setSelectedPlatforms(DEFAULT_SELECTED_PLATFORMS)}
           onToneChange={setTone}
+          onCustomInstructionChange={setCustomInstruction}
           onSubmit={handleRepurpose}
         />
 
