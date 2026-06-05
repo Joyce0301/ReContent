@@ -23,4 +23,15 @@ describe("buildRepurposeUserPrompt", () => {
 
     expect(prompt).not.toContain("附加个性化要求：");
   });
+
+  it("trims surrounding whitespace before injecting customInstruction", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Original source content",
+      tone: "casual",
+      customInstruction: "  更有故事感  "
+    });
+
+    expect(prompt).toContain("附加个性化要求：更有故事感");
+    expect(prompt).not.toContain("附加个性化要求：  更有故事感  ");
+  });
 });
