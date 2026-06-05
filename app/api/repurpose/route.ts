@@ -21,9 +21,32 @@ type ProviderConfig = {
   sourceCharLimit: number;
 };
 
+type ParsedRepurposeResponse = {
+  results: Array<{
+    platform: PlatformKey;
+    title?: string;
+    content: string;
+  }>;
+};
+
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const kimiApiKey = process.env.KIMI_API_KEY;
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 300;
+const DEFAULT_TEMPERATURE = 0.3;
+const RETRY_TEMPERATURE = 0.15;
+const SUSPICIOUS_CUSTOM_INSTRUCTION_PATTERNS = [
+  /ignore\s+(all|any|previous|above|prior)/i,
+  /忽略(所有|全部|以上|上面|之前|前面)/,
+  /\b(system|assistant|developer|user)\s*:/i,
+  /system\s+prompt/i,
+  /prompt注入/,
+  /```/,
+  /只\s*返回\s*json/i,
+  /输出\s*json/i,
+  /return\s+json/i,
+  /code\s+block/i,
+  /markdown/i
+];
 
 const openai = openaiApiKey
   ? new OpenAI({
@@ -74,6 +97,11 @@ export async function POST(req: Request) {
     );
   }
 
+  const sanitizedInstruction = sanitizeCustomInstruction(trimmedCustomInstruction);
+  if (sanitizedInstruction.error) {
+    return NextResponse.json({ error: sanitizedInstruction.error }, { status: 400 });
+  }
+
   try {
     const sourceContent =
       body.mode === "text"
@@ -96,7 +124,7 @@ export async function POST(req: Request) {
             sourceContent,
             body.platforms,
             body.tone,
-            trimmedCustomInstruction
+            sanitizedInstruction.value
           );
 
     return NextResponse.json({ results });
@@ -129,59 +157,93 @@ async function generateWithModel(
   customInstruction?: string
 ) {
   const { model, sourceCharLimit } = getProviderConfig(provider);
-
   const systemPrompt =
     "你是一个专业的中英双语内容营销编辑，擅长根据不同平台的规则重写内容。输出必须是严格的 JSON 格式。";
-
   const userPrompt = buildRepurposeUserPrompt({
     source,
     tone,
     customInstruction,
     sourceCharLimit
   });
-
-  const raw =
-    provider === "kimi"
-      ? await kimi!.createJsonCompletion({
-          model,
-          systemPrompt,
-          userPrompt,
-          temperature: 0.7
-        })
-      : await createOpenAiCompletion({
-          client: openai!,
-          model,
-          systemPrompt,
-          userPrompt
-        });
-
-  if (!raw) {
+  const primaryRaw = await createModelCompletion({
+    provider,
+    model,
+    systemPrompt,
+    userPrompt,
+    temperature: DEFAULT_TEMPERATURE
+  });
+  if (!primaryRaw) {
     throw new Error(`${provider} 返回为空`);
   }
+  const primaryParsed = parseRepurposeResponse(primaryRaw);
 
-  const parsed = JSON.parse(raw) as {
-    results: {
-      platform: PlatformKey;
-      title?: string;
-      content: string;
-    }[];
-  };
+  let parsed = primaryParsed;
+  if (!parsed) {
+    const retryRaw = await createModelCompletion({
+      provider,
+      model,
+      systemPrompt: `${systemPrompt} 如果上一次输出失败，原因只可能是返回内容不是合法 JSON。你这一次必须只返回一个可被 JSON.parse 解析的 JSON 对象，不能包含解释、前缀、代码块或注释。`,
+      userPrompt: `${userPrompt}\n\n上一次输出不是合法 JSON。这一次只返回 JSON 对象本身，不要补充任何说明。`,
+      temperature: RETRY_TEMPERATURE
+    });
+
+    if (!retryRaw) {
+      throw new Error(`${provider} 返回为空`);
+    }
+
+    parsed = parseRepurposeResponse(retryRaw);
+  }
+
+  if (!parsed) {
+    throw new Error(`${provider} 未返回合法 JSON`);
+  }
 
   const filtered = parsed.results.filter(r => platforms.includes(r.platform));
 
   return filtered;
 }
 
+async function createModelCompletion({
+  provider,
+  model,
+  systemPrompt,
+  userPrompt,
+  temperature
+}: {
+  provider: Exclude<AiProvider, "mock">;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  temperature: number;
+}) {
+  return provider === "kimi"
+    ? await kimi!.createJsonCompletion({
+        model,
+        systemPrompt,
+        userPrompt,
+        temperature
+      })
+    : await createOpenAiCompletion({
+        client: openai!,
+        model,
+        systemPrompt,
+        userPrompt,
+        temperature
+      });
+}
+
 async function createOpenAiCompletion({
   client,
   model,
   systemPrompt,
-  userPrompt
+  userPrompt,
+  temperature
 }: {
   client: OpenAI;
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  temperature: number;
 }) {
   const response = await client.chat.completions.create({
     model,
@@ -189,7 +251,7 @@ async function createOpenAiCompletion({
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.7,
+    temperature,
     response_format: { type: "json_object" }
   });
 
@@ -253,6 +315,84 @@ function toProviderErrorMessage(error: unknown): string | null {
   }
 
   return null;
+}
+
+export function sanitizeCustomInstruction(input: string): {
+  value: string;
+  error?: string;
+} {
+  const normalized = input.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return { value: "" };
+  }
+
+  const hasSuspiciousPattern = SUSPICIOUS_CUSTOM_INSTRUCTION_PATTERNS.some(pattern =>
+    pattern.test(normalized)
+  );
+
+  if (hasSuspiciousPattern) {
+    return {
+      value: "",
+      error: "个性化要求里包含可能干扰生成的指令，请只描述风格、口吻或表达方向"
+    };
+  }
+
+  return { value: normalized };
+}
+
+export function parseRepurposeResponse(raw: string): ParsedRepurposeResponse | null {
+  const directParsed = parseRepurposeJson(raw);
+  if (directParsed) {
+    return directParsed;
+  }
+
+  const fenced = raw
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const fencedParsed = parseRepurposeJson(fenced);
+  if (fencedParsed) {
+    return fencedParsed;
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+    return null;
+  }
+
+  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1));
+}
+
+function parseRepurposeJson(raw: string): ParsedRepurposeResponse | null {
+  try {
+    const parsed = JSON.parse(raw) as ParsedRepurposeResponse;
+    if (!Array.isArray(parsed.results)) {
+      return null;
+    }
+
+    const hasInvalidResult = parsed.results.some(result => {
+      if (!result || typeof result !== "object") {
+        return true;
+      }
+
+      const platform = result.platform;
+      const title = result.title;
+      const content = result.content;
+
+      return (
+        !["twitter", "linkedin", "xiaohongshu"].includes(platform) ||
+        typeof content !== "string" ||
+        (title !== undefined && typeof title !== "string")
+      );
+    });
+
+    return hasInvalidResult ? null : parsed;
+  } catch {
+    return null;
+  }
 }
 
 function generateMockResults(
