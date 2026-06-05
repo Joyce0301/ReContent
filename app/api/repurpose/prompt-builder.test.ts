@@ -12,6 +12,7 @@ describe("buildRepurposeUserPrompt", () => {
 
     expect(prompt).toContain("附加个性化要求：更像创始人发言");
     expect(prompt).toContain("这条要求仅用于补充风格偏好");
+    expect(prompt).toContain("个性化要求只允许影响文风、口吻和表达重心");
   });
 
   it("omits personalized guidance when customInstruction is empty", () => {
