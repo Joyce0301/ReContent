@@ -32,6 +32,8 @@ type DecideRetryPlanInput = {
 
 const MAX_COMPRESSED_INSTRUCTION_LENGTH = 60;
 const SHORT_INSTRUCTION_PRESERVE_LENGTH = 20;
+const PROVIDER_5XX_PATTERN = /(?:^|[^0-9a-z])(500|502|503|504)(?:$|[^0-9a-z])/i;
+const EMPTY_RESPONSE_PATTERNS = ["返回为空", "returned empty", "empty response"];
 
 export function classifyFailure(input: ClassifyFailureInput): FailureInfo {
   const message =
@@ -57,12 +59,13 @@ export function classifyFailure(input: ClassifyFailureInput): FailureInfo {
   }
 
   if (
-    message.includes("500") ||
-    message.includes("502") ||
-    message.includes("503") ||
-    message.includes("504")
+    PROVIDER_5XX_PATTERN.test(message)
   ) {
     return { kind: "provider_5xx", failureClass: "transient" };
+  }
+
+  if (EMPTY_RESPONSE_PATTERNS.some(pattern => message.includes(pattern))) {
+    return { kind: "empty_response", failureClass: "transient" };
   }
 
   if (input.rawOutput === null) {
@@ -91,8 +94,15 @@ export function compressCustomInstruction(input: string): string {
     return "";
   }
 
-  if (normalized.length <= SHORT_INSTRUCTION_PRESERVE_LENGTH) {
+  if (countCodePoints(normalized) <= SHORT_INSTRUCTION_PRESERVE_LENGTH) {
     return normalized;
+  }
+
+  const hasNegatedFounder = includesNegatedFounderCue(normalized);
+  const hasNegatedStory = includesNegatedStoryCue(normalized);
+
+  if (hasNegatedFounder || hasNegatedStory) {
+    return truncateByCodePoints(normalized, MAX_COMPRESSED_INSTRUCTION_LENGTH);
   }
 
   const parts: string[] = [];
@@ -121,11 +131,11 @@ export function compressCustomInstruction(input: string): string {
     return parts.join("，");
   }
 
-  if (normalized.length <= MAX_COMPRESSED_INSTRUCTION_LENGTH) {
+  if (countCodePoints(normalized) <= MAX_COMPRESSED_INSTRUCTION_LENGTH) {
     return normalized;
   }
 
-  return `${normalized.slice(0, MAX_COMPRESSED_INSTRUCTION_LENGTH).trim()}...`;
+  return truncateByCodePoints(normalized, MAX_COMPRESSED_INSTRUCTION_LENGTH);
 }
 
 export function decideRetryPlan(input: DecideRetryPlanInput): RetryDecision {
@@ -150,10 +160,44 @@ function includesNegatedPhrase(input: string, keyword: string) {
   return input.includes(`不要${keyword}`) || input.includes(`别${keyword}`);
 }
 
+function includesNegatedFounderCue(input: string) {
+  return (
+    input.includes("不要像创始人") ||
+    input.includes("别像创始人") ||
+    input.includes("不要创始人口吻") ||
+    input.includes("别创始人口吻")
+  );
+}
+
+function includesNegatedStoryCue(input: string) {
+  return (
+    input.includes("不要故事") ||
+    input.includes("别故事") ||
+    input.includes("不要故事化") ||
+    input.includes("别故事化") ||
+    input.includes("不要叙事") ||
+    input.includes("别叙事")
+  );
+}
+
 function includesStrongPreference(input: string, keyword: string) {
   return (
     input.includes(`${keyword}要强`) ||
     input.includes(`更${keyword}`) ||
     input.includes(`${keyword}更强`)
   );
+}
+
+function truncateByCodePoints(input: string, maxCodePoints: number) {
+  const codePoints = Array.from(input);
+
+  if (codePoints.length <= maxCodePoints) {
+    return input;
+  }
+
+  return `${codePoints.slice(0, maxCodePoints).join("").trim()}...`;
+}
+
+function countCodePoints(input: string) {
+  return Array.from(input).length;
 }
