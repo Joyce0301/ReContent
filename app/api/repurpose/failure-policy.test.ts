@@ -137,6 +137,15 @@ describe("compressCustomInstruction", () => {
 });
 
 describe("decideRetryPlan", () => {
+  it("preserves the two-property call contract with normal-mode defaults", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 1,
+        failureClass: "transient"
+      })
+    ).toBe("retry_normal");
+  });
+
   it("uses same-mode retry for transient failures before conservative mode", () => {
     expect(
       decideRetryPlan({
