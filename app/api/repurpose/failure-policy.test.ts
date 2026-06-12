@@ -51,6 +51,15 @@ describe("classifyFailure", () => {
     });
   });
 
+  it("does not treat missing raw output as an empty response", () => {
+    const result = classifyFailure({});
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
   it("classifies invalid JSON as generation", () => {
     const result = classifyFailure({
       rawOutput: "not-json"
@@ -103,6 +112,14 @@ describe("compressCustomInstruction", () => {
     );
   });
 
+  it("preserves negated intent instead of inverting it", () => {
+    expect(
+      compressCustomInstruction(
+        "更像创始人公开发言，但不要克制，营销感要强，也保留一点故事感"
+      )
+    ).toBe("风格偏创始人口吻，不要过度克制，保留营销张力，保留少量叙事感");
+  });
+
   it("returns an empty string for empty instructions", () => {
     expect(compressCustomInstruction("")).toBe("");
   });
@@ -113,6 +130,7 @@ describe("decideRetryPlan", () => {
     expect(
       decideRetryPlan({
         attemptCount: 1,
+        currentMode: "normal",
         failureClass: "transient"
       })
     ).toBe("retry_normal");
@@ -122,6 +140,7 @@ describe("decideRetryPlan", () => {
     expect(
       decideRetryPlan({
         attemptCount: 2,
+        currentMode: "normal",
         failureClass: "transient"
       })
     ).toBe("retry_conservative");
@@ -131,16 +150,28 @@ describe("decideRetryPlan", () => {
     expect(
       decideRetryPlan({
         attemptCount: 1,
+        currentMode: "normal",
         failureClass: "generation"
       })
     ).toBe("retry_conservative");
   });
 
-  it("stops after conservative mode has already failed", () => {
+  it("stops after a conservative-mode failure at attempt 2", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 2,
+        currentMode: "conservative",
+        failureClass: "generation"
+      })
+    ).toBe("stop");
+  });
+
+  it("stops transient retries at attempt 3", () => {
     expect(
       decideRetryPlan({
         attemptCount: 3,
-        failureClass: "generation"
+        currentMode: "normal",
+        failureClass: "transient"
       })
     ).toBe("stop");
   });
