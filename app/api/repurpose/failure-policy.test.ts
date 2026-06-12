@@ -40,6 +40,17 @@ describe("classifyFailure", () => {
     });
   });
 
+  it("does not treat duration-like strings such as 500ms as provider 5xx", () => {
+    const result = classifyFailure({
+      error: new Error("provider latency reached 500ms")
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
   it("classifies empty model output as transient", () => {
     const result = classifyFailure({
       rawOutput: ""
@@ -68,6 +79,17 @@ describe("classifyFailure", () => {
     expect(result).toEqual({
       kind: "invalid_json",
       failureClass: "generation"
+    });
+  });
+
+  it("recognizes provider empty-response wording as transient", () => {
+    const result = classifyFailure({
+      error: new Error("kimi 返回为空")
+    });
+
+    expect(result).toEqual({
+      kind: "empty_response",
+      failureClass: "transient"
     });
   });
 
@@ -129,6 +151,19 @@ describe("compressCustomInstruction", () => {
         "更像创始人公开发言，但不要克制，营销感要强，也保留一点故事感"
       )
     ).toBe("风格偏创始人口吻，不要过度克制，保留营销张力，保留少量叙事感");
+  });
+
+  it("avoids synthesizing inverted meaning for negated founder or story cues", () => {
+    expect(
+      compressCustomInstruction("不要像创始人公开发言，也不要故事化，语气自然一点")
+    ).toBe("不要像创始人公开发言，也不要故事化，语气自然一点");
+  });
+
+  it("truncates long instructions by Unicode code points", () => {
+    const result = compressCustomInstruction(`${"🙂".repeat(61)}语气自然直接`);
+
+    expect(result).toBe(`${"🙂".repeat(60)}...`);
+    expect(Array.from(result.replace(/\.\.\.$/, "")).length).toBe(60);
   });
 
   it("returns an empty string for empty instructions", () => {
