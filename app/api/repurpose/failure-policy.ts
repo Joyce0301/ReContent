@@ -26,7 +26,7 @@ type ClassifyFailureInput = {
 
 type DecideRetryPlanInput = {
   attemptCount: number;
-  currentMode: RetryMode;
+  currentMode?: RetryMode;
   failureClass: FailureClass;
 };
 
@@ -129,7 +129,9 @@ export function compressCustomInstruction(input: string): string {
 }
 
 export function decideRetryPlan(input: DecideRetryPlanInput): RetryDecision {
-  if (input.currentMode === "conservative") {
+  const currentMode = input.currentMode ?? "normal";
+
+  if (currentMode === "conservative") {
     return "stop";
   }
 
