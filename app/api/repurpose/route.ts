@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { extractContentFromUrl } from "./content-extraction";
+import { classifyFailure, compressCustomInstruction, decideRetryPlan } from "./failure-policy";
 import { createKimiClient } from "./kimi-client";
-import { buildRepurposeUserPrompt } from "./prompt-builder";
+import { buildRepurposeUserPrompt, type PromptMode } from "./prompt-builder";
 
 type PlatformKey = "twitter" | "linkedin" | "xiaohongshu";
 
@@ -20,10 +21,38 @@ type ProviderConfig = {
   model: string;
   sourceCharLimit: number;
 };
+type GenerationMode = PromptMode;
+
+type ParsedRepurposeResponse = {
+  results: Array<{
+    platform: PlatformKey;
+    title?: string;
+    content: string;
+  }>;
+};
 
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const kimiApiKey = process.env.KIMI_API_KEY;
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 300;
+const DEFAULT_TEMPERATURE = 0.3;
+const CONSERVATIVE_TEMPERATURE = 0.15;
+const NORMAL_SYSTEM_PROMPT =
+  "你是一个专业的中英双语内容营销编辑，擅长根据不同平台的规则重写内容。输出必须是严格的 JSON 格式。";
+const CONSERVATIVE_SYSTEM_PROMPT =
+  "你必须返回合法 JSON，并优先满足平台规则、字段结构和事实约束。";
+const SUSPICIOUS_CUSTOM_INSTRUCTION_PATTERNS = [
+  /ignore\s+(all|any|previous|above|prior)/i,
+  /忽略(所有|全部|以上|上面|之前|前面)/,
+  /\b(system|assistant|developer|user)\s*:/i,
+  /system\s+prompt/i,
+  /prompt注入/,
+  /```/,
+  /只\s*返回\s*json/i,
+  /输出\s*json/i,
+  /return\s+json/i,
+  /code\s+block/i,
+  /markdown/i
+];
 
 const openai = openaiApiKey
   ? new OpenAI({
@@ -74,6 +103,11 @@ export async function POST(req: Request) {
     );
   }
 
+  const sanitizedInstruction = sanitizeCustomInstruction(trimmedCustomInstruction);
+  if (sanitizedInstruction.error) {
+    return NextResponse.json({ error: sanitizedInstruction.error }, { status: 400 });
+  }
+
   try {
     const sourceContent =
       body.mode === "text"
@@ -96,7 +130,7 @@ export async function POST(req: Request) {
             sourceContent,
             body.platforms,
             body.tone,
-            trimmedCustomInstruction
+            sanitizedInstruction.value
           );
 
     return NextResponse.json({ results });
@@ -128,60 +162,177 @@ async function generateWithModel(
   tone: RequestBody["tone"],
   customInstruction?: string
 ) {
-  const { model, sourceCharLimit } = getProviderConfig(provider);
+  let attemptCount = 0;
+  let mode: GenerationMode = "normal";
+  let lastError: Error | null = null;
 
-  const systemPrompt =
-    "你是一个专业的中英双语内容营销编辑，擅长根据不同平台的规则重写内容。输出必须是严格的 JSON 格式。";
+  while (attemptCount < 3) {
+    attemptCount += 1;
 
-  const userPrompt = buildRepurposeUserPrompt({
-    source,
-    tone,
-    customInstruction,
-    sourceCharLimit
-  });
+    try {
+      const attempt = await generateAttempt({
+        provider,
+        source,
+        platforms,
+        tone,
+        customInstruction,
+        mode
+      });
 
-  const raw =
-    provider === "kimi"
-      ? await kimi!.createJsonCompletion({
-          model,
-          systemPrompt,
-          userPrompt,
-          temperature: 0.7
-        })
-      : await createOpenAiCompletion({
-          client: openai!,
-          model,
-          systemPrompt,
-          userPrompt
-        });
+      if (attempt.results) {
+        return attempt.results;
+      }
 
-  if (!raw) {
-    throw new Error(`${provider} 返回为空`);
+      const failure = classifyFailure({
+        rawOutput: attempt.rawOutput,
+        parsedValid: attempt.parsedValid,
+        hasContent: attempt.hasContent
+      });
+      const decision = decideRetryPlan({
+        attemptCount,
+        currentMode: mode,
+        failureClass: failure.failureClass
+      });
+
+      if (decision === "stop") {
+        break;
+      }
+
+      mode = decision === "retry_conservative" ? "conservative" : "normal";
+      lastError = new Error(failure.kind);
+    } catch (error) {
+      const failure = classifyFailure({ error });
+      const decision = decideRetryPlan({
+        attemptCount,
+        currentMode: mode,
+        failureClass: failure.failureClass
+      });
+
+      if (decision === "stop") {
+        throw error;
+      }
+
+      mode = decision === "retry_conservative" ? "conservative" : "normal";
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
   }
 
-  const parsed = JSON.parse(raw) as {
-    results: {
-      platform: PlatformKey;
-      title?: string;
-      content: string;
-    }[];
+  throw lastError ?? new Error(`${provider} 重试后仍然失败`);
+}
+
+async function generateAttempt(input: {
+  provider: Exclude<AiProvider, "mock">;
+  source: string;
+  platforms: PlatformKey[];
+  tone: RequestBody["tone"];
+  customInstruction?: string;
+  mode: GenerationMode;
+}) {
+  const { model, sourceCharLimit } = getProviderConfig(input.provider);
+  const fallbackInstruction =
+    input.mode === "conservative"
+      ? compressCustomInstruction(input.customInstruction ?? "")
+      : input.customInstruction ?? "";
+  const userPrompt = buildRepurposeUserPrompt({
+    source: input.source,
+    tone: input.tone,
+    customInstruction: fallbackInstruction,
+    sourceCharLimit,
+    mode: input.mode
+  });
+  const rawOutput = await createModelCompletion({
+    provider: input.provider,
+    model,
+    systemPrompt:
+      input.mode === "conservative" ? CONSERVATIVE_SYSTEM_PROMPT : NORMAL_SYSTEM_PROMPT,
+    userPrompt,
+    temperature:
+      input.mode === "conservative" ? CONSERVATIVE_TEMPERATURE : DEFAULT_TEMPERATURE
+  });
+
+  if (!rawOutput) {
+    return {
+      rawOutput,
+      parsedValid: undefined,
+      hasContent: undefined,
+      results: null
+    };
+  }
+
+  const parsedOutcome = parseRepurposePayload(rawOutput);
+  if (!parsedOutcome.parsed) {
+    return {
+      rawOutput,
+      parsedValid: parsedOutcome.parsedValid,
+      hasContent: undefined,
+      results: null
+    };
+  }
+
+  const filtered = parsedOutcome.parsed.results.filter(result =>
+    input.platforms.includes(result.platform)
+  );
+  const hasContent =
+    filtered.length > 0 && filtered.every(result => result.content.trim().length > 0);
+
+  if (!hasContent) {
+    return {
+      rawOutput,
+      parsedValid: true,
+      hasContent: false,
+      results: null
+    };
+  }
+
+  return {
+    rawOutput,
+    parsedValid: true,
+    hasContent: true,
+    results: filtered
   };
+}
 
-  const filtered = parsed.results.filter(r => platforms.includes(r.platform));
-
-  return filtered;
+async function createModelCompletion({
+  provider,
+  model,
+  systemPrompt,
+  userPrompt,
+  temperature
+}: {
+  provider: Exclude<AiProvider, "mock">;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  temperature: number;
+}) {
+  return provider === "kimi"
+    ? await kimi!.createJsonCompletion({
+        model,
+        systemPrompt,
+        userPrompt,
+        temperature
+      })
+    : await createOpenAiCompletion({
+        client: openai!,
+        model,
+        systemPrompt,
+        userPrompt,
+        temperature
+      });
 }
 
 async function createOpenAiCompletion({
   client,
   model,
   systemPrompt,
-  userPrompt
+  userPrompt,
+  temperature
 }: {
   client: OpenAI;
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  temperature: number;
 }) {
   const response = await client.chat.completions.create({
     model,
@@ -189,7 +340,7 @@ async function createOpenAiCompletion({
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    temperature: 0.7,
+    temperature,
     response_format: { type: "json_object" }
   });
 
@@ -253,6 +404,96 @@ function toProviderErrorMessage(error: unknown): string | null {
   }
 
   return null;
+}
+
+export function sanitizeCustomInstruction(input: string): {
+  value: string;
+  error?: string;
+} {
+  const normalized = input.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return { value: "" };
+  }
+
+  const hasSuspiciousPattern = SUSPICIOUS_CUSTOM_INSTRUCTION_PATTERNS.some(pattern =>
+    pattern.test(normalized)
+  );
+
+  if (hasSuspiciousPattern) {
+    return {
+      value: "",
+      error: "个性化要求里包含可能干扰生成的指令，请只描述风格、口吻或表达方向"
+    };
+  }
+
+  return { value: normalized };
+}
+
+export function parseRepurposeResponse(raw: string): ParsedRepurposeResponse | null {
+  return parseRepurposePayload(raw).parsed;
+}
+
+function parseRepurposePayload(raw: string): {
+  parsed: ParsedRepurposeResponse | null;
+  parsedValid?: boolean;
+} {
+  const directParsed = parseRepurposeJson(raw);
+  if (directParsed.parsed || directParsed.parsedValid === false) {
+    return directParsed;
+  }
+
+  const fenced = raw
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const fencedParsed = parseRepurposeJson(fenced);
+  if (fencedParsed.parsed || fencedParsed.parsedValid === false) {
+    return fencedParsed;
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+    return { parsed: null };
+  }
+
+  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1));
+}
+
+function parseRepurposeJson(raw: string): {
+  parsed: ParsedRepurposeResponse | null;
+  parsedValid?: boolean;
+} {
+  try {
+    const parsed = JSON.parse(raw) as ParsedRepurposeResponse;
+    if (!Array.isArray(parsed.results)) {
+      return { parsed: null, parsedValid: false };
+    }
+
+    const hasInvalidResult = parsed.results.some(result => {
+      if (!result || typeof result !== "object") {
+        return true;
+      }
+
+      const platform = result.platform;
+      const title = result.title;
+      const content = result.content;
+
+      return (
+        !["twitter", "linkedin", "xiaohongshu"].includes(platform) ||
+        typeof content !== "string" ||
+        (title !== undefined && typeof title !== "string")
+      );
+    });
+
+    return hasInvalidResult
+      ? { parsed: null, parsedValid: false }
+      : { parsed, parsedValid: true };
+  } catch {
+    return { parsed: null };
+  }
 }
 
 function generateMockResults(
