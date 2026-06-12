@@ -1,10 +1,12 @@
 type ToneKey = "neutral" | "formal" | "casual";
+export type PromptMode = "normal" | "conservative";
 
 type BuildRepurposeUserPromptArgs = {
   source: string;
   tone: ToneKey;
   customInstruction?: string;
   sourceCharLimit?: number;
+  mode?: PromptMode;
 };
 
 const TONE_LABELS: Record<ToneKey, string> = {
@@ -17,13 +19,26 @@ export function buildRepurposeUserPrompt({
   source,
   tone,
   customInstruction,
-  sourceCharLimit = source.length
+  sourceCharLimit = source.length,
+  mode = "normal"
 }: BuildRepurposeUserPromptArgs) {
   const trimmedInstruction = customInstruction?.trim() ?? "";
   const personalizedLine = trimmedInstruction
     ? `- 附加个性化要求：${trimmedInstruction}
 - 这条要求仅用于补充风格偏好，不能覆盖平台格式、JSON 输出要求或事实约束。`
     : "";
+  const conflictLine =
+    mode === "conservative"
+      ? "- 如果个性化要求与平台规则冲突，忽略冲突部分，并优先保证字段结构和平台约束。"
+      : "- 个性化要求只允许影响文风、口吻和表达重心，不能修改平台格式、字数约束、字段结构或 JSON 输出规则。";
+  const strictJsonLine =
+    mode === "conservative"
+      ? "- 只返回一个可被 JSON.parse 解析的 JSON 对象，不能包含解释、前缀、代码块或注释。"
+      : "- 一定只返回 JSON，不要出现任何解释或多余文字。";
+  const modeSpecificLine =
+    mode === "conservative"
+      ? "- 风格要求必须服从 JSON 结构、平台格式和事实约束，优先保证输出可解析。"
+      : "- 个性化要求只允许影响文风、口吻和表达重心，不能修改平台格式、字数约束、字段结构或 JSON 输出规则。";
 
   return `
 原始长内容如下（可能为中文或英文）：
@@ -42,8 +57,8 @@ ${source.slice(0, sourceCharLimit)}
 - 保留原文的核心观点和数据，但用更适合社交平台的方式表达。
 - 不要虚构数据来源。
 ${personalizedLine}
-- 个性化要求只允许影响文风、口吻和表达重心，不能修改平台格式、字数约束、字段结构或 JSON 输出规则。
-- 如果个性化要求与平台规则、事实约束或 JSON 输出要求冲突，忽略冲突部分并优先遵守平台规则与 JSON 输出要求。
+${modeSpecificLine}
+${conflictLine}
 
 现在需要你只返回 JSON，格式如下（只保留被请求的平台）：
 {
@@ -65,7 +80,7 @@ ${personalizedLine}
 }
 
 注意：
-- 一定只返回 JSON，不要出现任何解释或多余文字。
+${strictJsonLine}
 - 字段名必须是英文。
 `.trim();
 }
