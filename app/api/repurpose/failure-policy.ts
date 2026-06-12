@@ -32,6 +32,7 @@ type DecideRetryPlanInput = {
 
 const MAX_COMPRESSED_INSTRUCTION_LENGTH = 60;
 const SHORT_INSTRUCTION_PRESERVE_LENGTH = 20;
+const RATE_LIMIT_PATTERN = /(?:^|[^0-9a-z])(429)(?:$|[^0-9a-z])/i;
 const PROVIDER_5XX_PATTERN = /(?:^|[^0-9a-z])(500|502|503|504)(?:$|[^0-9a-z])/i;
 const EMPTY_RESPONSE_PATTERNS = ["返回为空", "returned empty", "empty response"];
 
@@ -40,7 +41,7 @@ export function classifyFailure(input: ClassifyFailureInput): FailureInfo {
     input.error instanceof Error ? input.error.message.toLowerCase() : "";
 
   if (
-    message.includes("429") ||
+    RATE_LIMIT_PATTERN.test(message) ||
     message.includes("rate limit") ||
     message.includes("quota")
   ) {
@@ -100,8 +101,10 @@ export function compressCustomInstruction(input: string): string {
 
   const hasNegatedFounder = includesNegatedFounderCue(normalized);
   const hasNegatedStory = includesNegatedStoryCue(normalized);
+  const hasConflictingMarketingRestraintSignals =
+    hasAmbiguousMarketingSignal(normalized) || hasAmbiguousRestraintSignal(normalized);
 
-  if (hasNegatedFounder || hasNegatedStory) {
+  if (hasNegatedFounder || hasNegatedStory || hasConflictingMarketingRestraintSignals) {
     return truncateByCodePoints(normalized, MAX_COMPRESSED_INSTRUCTION_LENGTH);
   }
 
@@ -185,6 +188,19 @@ function includesStrongPreference(input: string, keyword: string) {
     input.includes(`${keyword}要强`) ||
     input.includes(`更${keyword}`) ||
     input.includes(`${keyword}更强`)
+  );
+}
+
+function hasAmbiguousMarketingSignal(input: string) {
+  return input.includes("保留营销感");
+}
+
+function hasAmbiguousRestraintSignal(input: string) {
+  return (
+    input.includes("不要太克制") ||
+    input.includes("别太克制") ||
+    input.includes("不要过于克制") ||
+    input.includes("别过于克制")
   );
 }
 
