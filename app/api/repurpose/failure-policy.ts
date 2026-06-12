@@ -15,6 +15,7 @@ export type FailureInfo = {
 };
 
 export type RetryDecision = "retry_normal" | "retry_conservative" | "stop";
+export type RetryMode = "normal" | "conservative";
 
 type ClassifyFailureInput = {
   error?: unknown;
@@ -25,6 +26,7 @@ type ClassifyFailureInput = {
 
 type DecideRetryPlanInput = {
   attemptCount: number;
+  currentMode: RetryMode;
   failureClass: FailureClass;
 };
 
@@ -63,7 +65,7 @@ export function classifyFailure(input: ClassifyFailureInput): FailureInfo {
     return { kind: "provider_5xx", failureClass: "transient" };
   }
 
-  if (input.rawOutput == null || input.rawOutput.trim().length === 0) {
+  if (typeof input.rawOutput === "string" && input.rawOutput.trim().length === 0) {
     return { kind: "empty_response", failureClass: "transient" };
   }
 
@@ -95,11 +97,15 @@ export function compressCustomInstruction(input: string): string {
     parts.push("风格偏创始人口吻");
   }
 
-  if (normalized.includes("克制")) {
+  if (includesNegatedPhrase(normalized, "克制")) {
+    parts.push("不要过度克制");
+  } else if (normalized.includes("克制")) {
     parts.push("表达克制");
   }
 
-  if (normalized.includes("营销")) {
+  if (includesStrongPreference(normalized, "营销感")) {
+    parts.push("保留营销张力");
+  } else if (normalized.includes("营销")) {
     parts.push("弱化营销感");
   }
 
@@ -119,6 +125,10 @@ export function compressCustomInstruction(input: string): string {
 }
 
 export function decideRetryPlan(input: DecideRetryPlanInput): RetryDecision {
+  if (input.currentMode === "conservative") {
+    return "stop";
+  }
+
   if (input.attemptCount >= 3) {
     return "stop";
   }
@@ -128,4 +138,16 @@ export function decideRetryPlan(input: DecideRetryPlanInput): RetryDecision {
   }
 
   return "retry_conservative";
+}
+
+function includesNegatedPhrase(input: string, keyword: string) {
+  return input.includes(`不要${keyword}`) || input.includes(`别${keyword}`);
+}
+
+function includesStrongPreference(input: string, keyword: string) {
+  return (
+    input.includes(`${keyword}要强`) ||
+    input.includes(`更${keyword}`) ||
+    input.includes(`${keyword}更强`)
+  );
 }
