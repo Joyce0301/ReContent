@@ -51,6 +51,17 @@ describe("classifyFailure", () => {
     });
   });
 
+  it("does not treat duration-like strings such as 429ms as rate limits", () => {
+    const result = classifyFailure({
+      error: new Error("request finished in 429ms")
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
   it("classifies empty model output as transient", () => {
     const result = classifyFailure({
       rawOutput: ""
@@ -157,6 +168,22 @@ describe("compressCustomInstruction", () => {
     expect(
       compressCustomInstruction("不要像创始人公开发言，也不要故事化，语气自然一点")
     ).toBe("不要像创始人公开发言，也不要故事化，语气自然一点");
+  });
+
+  it("preserves mixed marketing and restraint modifiers when heuristics conflict", () => {
+    expect(
+      compressCustomInstruction("保留营销感，不要太克制，但整体别太浮夸")
+    ).toBe("保留营销感，不要太克制，但整体别太浮夸");
+  });
+
+  it("preserves mixed marketing and restraint modifiers even in longer inputs", () => {
+    expect(
+      compressCustomInstruction(
+        "整体更像品牌负责人发言，保留营销感，不要太克制，但也别显得过度煽动，语气依然自然可信"
+      )
+    ).toBe(
+      "整体更像品牌负责人发言，保留营销感，不要太克制，但也别显得过度煽动，语气依然自然可信"
+    );
   });
 
   it("truncates long instructions by Unicode code points", () => {
