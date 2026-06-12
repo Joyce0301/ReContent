@@ -65,6 +65,10 @@ export function classifyFailure(input: ClassifyFailureInput): FailureInfo {
     return { kind: "provider_5xx", failureClass: "transient" };
   }
 
+  if (input.rawOutput === null) {
+    return { kind: "empty_response", failureClass: "transient" };
+  }
+
   if (typeof input.rawOutput === "string" && input.rawOutput.trim().length === 0) {
     return { kind: "empty_response", failureClass: "transient" };
   }

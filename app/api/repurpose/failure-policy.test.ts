@@ -51,6 +51,17 @@ describe("classifyFailure", () => {
     });
   });
 
+  it("treats explicit null raw output as a transient empty response", () => {
+    const result = classifyFailure({
+      rawOutput: null
+    });
+
+    expect(result).toEqual({
+      kind: "empty_response",
+      failureClass: "transient"
+    });
+  });
+
   it("does not treat missing raw output as an empty response", () => {
     const result = classifyFailure({});
 
