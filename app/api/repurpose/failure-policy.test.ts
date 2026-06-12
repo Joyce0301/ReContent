@@ -1,0 +1,260 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  classifyFailure,
+  compressCustomInstruction,
+  decideRetryPlan
+} from "./failure-policy";
+
+describe("classifyFailure", () => {
+  it("classifies rate-limit errors as transient", () => {
+    const result = classifyFailure({
+      error: new Error("Kimi API error (429): quota exceeded")
+    });
+
+    expect(result).toEqual({
+      kind: "rate_limit",
+      failureClass: "transient"
+    });
+  });
+
+  it("classifies network-style errors as transient", () => {
+    const result = classifyFailure({
+      error: new Error("connection timed out while waiting for provider")
+    });
+
+    expect(result).toEqual({
+      kind: "network_timeout",
+      failureClass: "transient"
+    });
+  });
+
+  it("classifies provider 5xx errors as transient", () => {
+    const result = classifyFailure({
+      error: new Error("OpenAI API error (503): service unavailable")
+    });
+
+    expect(result).toEqual({
+      kind: "provider_5xx",
+      failureClass: "transient"
+    });
+  });
+
+  it("does not treat duration-like strings such as 500ms as provider 5xx", () => {
+    const result = classifyFailure({
+      error: new Error("provider latency reached 500ms")
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
+  it("does not treat duration-like strings such as 429ms as rate limits", () => {
+    const result = classifyFailure({
+      error: new Error("request finished in 429ms")
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
+  it("classifies empty model output as transient", () => {
+    const result = classifyFailure({
+      rawOutput: ""
+    });
+
+    expect(result).toEqual({
+      kind: "empty_response",
+      failureClass: "transient"
+    });
+  });
+
+  it("treats explicit null raw output as a transient empty response", () => {
+    const result = classifyFailure({
+      rawOutput: null
+    });
+
+    expect(result).toEqual({
+      kind: "empty_response",
+      failureClass: "transient"
+    });
+  });
+
+  it("does not treat missing raw output as an empty response", () => {
+    const result = classifyFailure({});
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
+  it("recognizes provider empty-response wording as transient", () => {
+    const result = classifyFailure({
+      error: new Error("kimi 返回为空")
+    });
+
+    expect(result).toEqual({
+      kind: "empty_response",
+      failureClass: "transient"
+    });
+  });
+
+  it("classifies invalid JSON as generation", () => {
+    const result = classifyFailure({
+      rawOutput: "not-json"
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_json",
+      failureClass: "generation"
+    });
+  });
+
+  it("classifies invalid schema as generation", () => {
+    const result = classifyFailure({
+      rawOutput: '{"foo":"bar"}',
+      parsedValid: false
+    });
+
+    expect(result).toEqual({
+      kind: "invalid_schema",
+      failureClass: "generation"
+    });
+  });
+
+  it("classifies empty content as generation", () => {
+    const result = classifyFailure({
+      rawOutput: '{"results":[{"platform":"twitter","content":""}]}',
+      parsedValid: true,
+      hasContent: false
+    });
+
+    expect(result).toEqual({
+      kind: "empty_content",
+      failureClass: "generation"
+    });
+  });
+});
+
+describe("compressCustomInstruction", () => {
+  it("reduces a long personalized instruction into a compact style summary", () => {
+    expect(
+      compressCustomInstruction(
+        "更像创始人公开发言，但不要太营销，要更克制，也要有一点故事感"
+      )
+    ).toBe("风格偏创始人口吻，表达克制，弱化营销感，保留少量叙事感");
+  });
+
+  it("normalizes whitespace and preserves short instructions", () => {
+    expect(compressCustomInstruction("  更有故事感   更克制一些  ")).toBe(
+      "更有故事感 更克制一些"
+    );
+  });
+
+  it("preserves negated intent instead of inverting it", () => {
+    expect(
+      compressCustomInstruction(
+        "更像创始人公开发言，但不要克制，营销感要强，也保留一点故事感"
+      )
+    ).toBe("风格偏创始人口吻，不要过度克制，保留营销张力，保留少量叙事感");
+  });
+
+  it("avoids synthesizing inverted meaning for negated founder or story cues", () => {
+    expect(
+      compressCustomInstruction("不要像创始人公开发言，也不要故事化，语气自然一点")
+    ).toBe("不要像创始人公开发言，也不要故事化，语气自然一点");
+  });
+
+  it("preserves mixed marketing and restraint modifiers when heuristics conflict", () => {
+    expect(
+      compressCustomInstruction("保留营销感，不要太克制，但整体别太浮夸")
+    ).toBe("保留营销感，不要太克制，但整体别太浮夸");
+  });
+
+  it("preserves mixed marketing and restraint modifiers even in longer inputs", () => {
+    expect(
+      compressCustomInstruction(
+        "整体更像品牌负责人发言，保留营销感，不要太克制，但也别显得过度煽动，语气依然自然可信"
+      )
+    ).toBe(
+      "整体更像品牌负责人发言，保留营销感，不要太克制，但也别显得过度煽动，语气依然自然可信"
+    );
+  });
+
+  it("truncates long instructions by Unicode code points", () => {
+    const result = compressCustomInstruction(`${"🙂".repeat(61)}语气自然直接`);
+
+    expect(result).toBe(`${"🙂".repeat(60)}...`);
+    expect(Array.from(result.replace(/\.\.\.$/, "")).length).toBe(60);
+  });
+
+  it("returns an empty string for empty instructions", () => {
+    expect(compressCustomInstruction("")).toBe("");
+  });
+});
+
+describe("decideRetryPlan", () => {
+  it("preserves the two-property call contract with normal-mode defaults", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 1,
+        failureClass: "transient"
+      })
+    ).toBe("retry_normal");
+  });
+
+  it("uses same-mode retry for transient failures before conservative mode", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 1,
+        currentMode: "normal",
+        failureClass: "transient"
+      })
+    ).toBe("retry_normal");
+  });
+
+  it("switches transient failures to conservative mode after the normal retry", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 2,
+        currentMode: "normal",
+        failureClass: "transient"
+      })
+    ).toBe("retry_conservative");
+  });
+
+  it("switches directly to conservative mode for generation failures", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 1,
+        currentMode: "normal",
+        failureClass: "generation"
+      })
+    ).toBe("retry_conservative");
+  });
+
+  it("stops after a conservative-mode failure at attempt 2", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 2,
+        currentMode: "conservative",
+        failureClass: "generation"
+      })
+    ).toBe("stop");
+  });
+
+  it("stops transient retries at attempt 3", () => {
+    expect(
+      decideRetryPlan({
+        attemptCount: 3,
+        currentMode: "normal",
+        failureClass: "transient"
+      })
+    ).toBe("stop");
+  });
+});
