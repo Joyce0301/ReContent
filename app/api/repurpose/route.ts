@@ -31,9 +31,26 @@ type ParsedRepurposeResponse = {
   }>;
 };
 
+type RepurposeRunTrace = {
+  mode: RequestBody["mode"];
+  targetPlatforms: PlatformKey[];
+  hasCustomInstruction: boolean;
+  attempts: Array<{
+    attempt: number;
+    mode: GenerationMode;
+    outcome: "success" | "failure";
+    failureClass?: "transient" | "generation";
+    failureKind?: string;
+  }>;
+  attemptCount: number;
+  finalMode: GenerationMode;
+  finalStatus: "success" | "failure";
+};
+
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const kimiApiKey = process.env.KIMI_API_KEY;
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 300;
+const MAX_XIAOHONGSHU_TITLE_LENGTH = 20;
 const DEFAULT_TEMPERATURE = 0.3;
 const CONSERVATIVE_TEMPERATURE = 0.15;
 const NORMAL_SYSTEM_PROMPT =
@@ -130,7 +147,12 @@ export async function POST(req: Request) {
             sourceContent,
             body.platforms,
             body.tone,
-            sanitizedInstruction.value
+            sanitizedInstruction.value,
+            {
+              mode: body.mode,
+              targetPlatforms: body.platforms,
+              hasCustomInstruction: sanitizedInstruction.value.length > 0
+            }
           );
 
     return NextResponse.json({ results });
@@ -160,11 +182,13 @@ async function generateWithModel(
   source: string,
   platforms: PlatformKey[],
   tone: RequestBody["tone"],
-  customInstruction?: string
+  customInstruction?: string,
+  traceSeed?: Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">
 ) {
   let attemptCount = 0;
   let mode: GenerationMode = "normal";
   let lastError: Error | null = null;
+  const trace = createRunTrace(traceSeed, platforms, customInstruction);
 
   while (attemptCount < 3) {
     attemptCount += 1;
@@ -180,6 +204,17 @@ async function generateWithModel(
       });
 
       if (attempt.results) {
+        trace.attempts.push({
+          attempt: attemptCount,
+          mode,
+          outcome: "success"
+        });
+        finalizeRunTrace(trace, {
+          attemptCount,
+          finalMode: mode,
+          finalStatus: "success"
+        });
+        logRunTrace(trace);
         return attempt.results;
       }
 
@@ -187,6 +222,13 @@ async function generateWithModel(
         rawOutput: attempt.rawOutput,
         parsedValid: attempt.parsedValid,
         hasContent: attempt.hasContent
+      });
+      trace.attempts.push({
+        attempt: attemptCount,
+        mode,
+        outcome: "failure",
+        failureClass: failure.failureClass,
+        failureKind: failure.kind
       });
       const decision = decideRetryPlan({
         attemptCount,
@@ -202,6 +244,13 @@ async function generateWithModel(
       lastError = new Error(failure.kind);
     } catch (error) {
       const failure = classifyFailure({ error });
+      trace.attempts.push({
+        attempt: attemptCount,
+        mode,
+        outcome: "failure",
+        failureClass: failure.failureClass,
+        failureKind: failure.kind
+      });
       const decision = decideRetryPlan({
         attemptCount,
         currentMode: mode,
@@ -209,6 +258,12 @@ async function generateWithModel(
       });
 
       if (decision === "stop") {
+        finalizeRunTrace(trace, {
+          attemptCount,
+          finalMode: mode,
+          finalStatus: "failure"
+        });
+        logRunTrace(trace);
         throw error;
       }
 
@@ -217,6 +272,12 @@ async function generateWithModel(
     }
   }
 
+  finalizeRunTrace(trace, {
+    attemptCount,
+    finalMode: mode,
+    finalStatus: "failure"
+  });
+  logRunTrace(trace);
   throw lastError ?? new Error(`${provider} 重试后仍然失败`);
 }
 
@@ -468,7 +529,7 @@ function parseRepurposeJson(raw: string): {
 } {
   try {
     const parsed = JSON.parse(raw) as ParsedRepurposeResponse;
-    if (!Array.isArray(parsed.results)) {
+    if (!Array.isArray(parsed.results) || parsed.results.length === 0) {
       return { parsed: null, parsedValid: false };
     }
 
@@ -480,11 +541,18 @@ function parseRepurposeJson(raw: string): {
       const platform = result.platform;
       const title = result.title;
       const content = result.content;
+      const trimmedTitle = typeof title === "string" ? title.trim() : undefined;
+      const trimmedContent = typeof content === "string" ? content.trim() : "";
 
       return (
         !["twitter", "linkedin", "xiaohongshu"].includes(platform) ||
         typeof content !== "string" ||
-        (title !== undefined && typeof title !== "string")
+        trimmedContent.length === 0 ||
+        (title !== undefined && typeof title !== "string") ||
+        (platform === "xiaohongshu" &&
+          (trimmedTitle === undefined ||
+            trimmedTitle.length === 0 ||
+            countCodePoints(trimmedTitle) > MAX_XIAOHONGSHU_TITLE_LENGTH))
       );
     });
 
@@ -553,4 +621,40 @@ ${baseIntro}
 最后一段：用 2-3 个带 # 的标签收尾，例如：#内容创作 #自媒体 #AI工具（实际使用时请替换为更贴近内容的标签）。`
     };
   });
+}
+
+function countCodePoints(input: string) {
+  return Array.from(input).length;
+}
+
+function createRunTrace(
+  traceSeed:
+    | Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">
+    | undefined,
+  platforms: PlatformKey[],
+  customInstruction?: string
+): RepurposeRunTrace {
+  return {
+    mode: traceSeed?.mode ?? "text",
+    targetPlatforms: traceSeed?.targetPlatforms ?? platforms,
+    hasCustomInstruction:
+      traceSeed?.hasCustomInstruction ?? Boolean(customInstruction?.trim().length),
+    attempts: [],
+    attemptCount: 0,
+    finalMode: "normal",
+    finalStatus: "failure"
+  };
+}
+
+function finalizeRunTrace(
+  trace: RepurposeRunTrace,
+  result: Pick<RepurposeRunTrace, "attemptCount" | "finalMode" | "finalStatus">
+) {
+  trace.attemptCount = result.attemptCount;
+  trace.finalMode = result.finalMode;
+  trace.finalStatus = result.finalStatus;
+}
+
+function logRunTrace(trace: RepurposeRunTrace) {
+  console.info("repurpose run", JSON.stringify(trace));
 }

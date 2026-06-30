@@ -100,6 +100,49 @@ describe("POST /api/repurpose retry policy", () => {
     expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.3);
   });
 
+  it("emits a structured run trace when fallback succeeds", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce("not-json")
+      .mockResolvedValueOnce(
+        '{"results":[{"platform":"twitter","content":"conservative success"}]}'
+      );
+
+    const { POST } = await loadRouteModuleWithKimi(createJsonCompletion);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["twitter"],
+        tone: "neutral",
+        customInstruction: "更像创始人发言，但更克制"
+      })
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(infoSpy).toHaveBeenCalledWith(
+      "repurpose run",
+      expect.stringContaining('"finalStatus":"success"')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "repurpose run",
+      expect.stringContaining('"finalMode":"conservative"')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "repurpose run",
+      expect.stringContaining('"hasCustomInstruction":true')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "repurpose run",
+      expect.stringContaining('"failureKind":"invalid_json"')
+    );
+  });
+
   it("switches directly to conservative mode after a generation failure", async () => {
     const createJsonCompletion = vi
       .fn()
@@ -197,5 +240,39 @@ describe("parseRepurposeResponse", () => {
     const { parseRepurposeResponse } = await loadRouteModule();
 
     expect(parseRepurposeResponse('{"foo":"bar"}')).toBeNull();
+  });
+
+  it("returns null for empty results arrays", async () => {
+    const { parseRepurposeResponse } = await loadRouteModule();
+
+    expect(parseRepurposeResponse('{"results":[]}')).toBeNull();
+  });
+
+  it("returns null for blank-only content", async () => {
+    const { parseRepurposeResponse } = await loadRouteModule();
+
+    expect(
+      parseRepurposeResponse('{"results":[{"platform":"twitter","content":"   "}]}')
+    ).toBeNull();
+  });
+
+  it("returns null for blank Xiaohongshu titles", async () => {
+    const { parseRepurposeResponse } = await loadRouteModule();
+
+    expect(
+      parseRepurposeResponse(
+        '{"results":[{"platform":"xiaohongshu","title":"   ","content":"正文"}]}'
+      )
+    ).toBeNull();
+  });
+
+  it("returns null for overly long Xiaohongshu titles", async () => {
+    const { parseRepurposeResponse } = await loadRouteModule();
+
+    expect(
+      parseRepurposeResponse(
+        `{"results":[{"platform":"xiaohongshu","title":"${"超".repeat(21)}","content":"正文"}]}`
+      )
+    ).toBeNull();
   });
 });

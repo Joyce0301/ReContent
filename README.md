@@ -20,6 +20,35 @@
 
 `原始内容输入 -> 内容抽取/清洗 -> Prompt 构建 -> 模型生成 -> JSON 校验 -> 多平台结果展示`
 
+## 当前项目亮点
+
+如果从“项目描述”而不是“功能清单”的角度看，这个项目目前比较有代表性的点有：
+
+- 不只是调用 LLM 生成文案，而是做了面向多平台改写的结构化输出约束
+- 已支持用户个性化风格输入，而不是固定模板生成
+- 有显式失败回退策略，开始具备 Agent 式编排的雏形
+- 前后端链路完整，可本地开发、测试、构建、部署
+- 保留多模型扩展空间，后续可以继续接更多 provider 或多模态能力
+
+## 项目结构
+
+核心目录大致如下：
+
+```text
+app/
+  api/repurpose/
+    route.ts                 # 主 API 路由，负责校验、生成、fallback 编排
+    prompt-builder.ts        # 根据模式构建 normal / conservative prompt
+    failure-policy.ts        # 失败分类、压缩个性化要求、重试决策
+    content-extraction.ts    # URL 正文抽取
+    kimi-client.ts           # Kimi 模型调用封装
+  components/recontent/
+    input-panel.tsx          # 输入、平台、语气、个性化要求面板
+    result-surface.tsx       # 结果容器
+    result-document.tsx      # 单平台成稿视图
+  page.tsx                   # 首页主流程
+```
+
 ## 已实现功能
 
 ### 1. 内容输入
@@ -106,25 +135,6 @@
 - `Vitest` 用于 API 和 Prompt 相关测试
 - `OpenNext + Cloudflare` 用于构建/预览/部署
 
-## 项目结构
-
-核心目录大致如下：
-
-```text
-app/
-  api/repurpose/
-    route.ts                 # 主 API 路由，负责校验、生成、fallback 编排
-    prompt-builder.ts        # 根据模式构建 normal / conservative prompt
-    failure-policy.ts        # 失败分类、压缩个性化要求、重试决策
-    content-extraction.ts    # URL 正文抽取
-    kimi-client.ts           # Kimi 模型调用封装
-  components/recontent/
-    input-panel.tsx          # 输入、平台、语气、个性化要求面板
-    result-surface.tsx       # 结果容器
-    result-document.tsx      # 单平台成稿视图
-  page.tsx                   # 首页主流程
-```
-
 ## 本地启动
 
 ### 1. 安装依赖
@@ -189,15 +199,15 @@ npx vitest run app/api/repurpose/route.test.ts \
   app/api/repurpose/content-extraction.test.ts
 ```
 
-## 当前项目亮点
+## 协作约定
 
-如果从“项目描述”而不是“功能清单”的角度看，这个项目目前比较有代表性的点有：
+如果你是第一次进入这个仓库，或将使用 agent / Codex 继续开发，请先阅读 [AGENTS.md](/Users/juice/Desktop/vibe%20coding/ReContent/AGENTS.md)。
 
-- 不只是调用 LLM 生成文案，而是做了面向多平台改写的结构化输出约束
-- 已支持用户个性化风格输入，而不是固定模板生成
-- 有显式失败回退策略，开始具备 Agent 式编排的雏形
-- 前后端链路完整，可本地开发、测试、构建、部署
-- 保留多模型扩展空间，后续可以继续接更多 provider 或多模态能力
+其中定义了本项目默认的协作方式，尤其是：
+
+- 使用 `git worktree` 作为默认开发模式
+- 一项任务对应一个独立 worktree 和分支
+- 提交前的最小验证与清理规则
 
 ## 下一步可以继续做什么
 
@@ -213,4 +223,4 @@ npx vitest run app/api/repurpose/route.test.ts \
 
 ## 项目定位
 
-ReContent 现在已经不是“一个能调用大模型的页面”，而是一个已经具备内容重制核心链路、风格控制能力和基础可靠性设计的内容生产工具原型。
+ReContent 现在已经不是“一个能调用大模型的页面”，而是一个已经具备内容重制核心链路、风格控制能力和基础可靠性设计的内容生产工具原型。后续继续往 Agent Framework、SaaS 化和多模型编排方向延展，会比较顺。
