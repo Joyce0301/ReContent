@@ -190,13 +190,13 @@ export function InputPanel({
 
         {error && (
           <div
-            className="flex items-start gap-3 rounded-[18px] border border-red-500/20 bg-red-500/[0.08] px-3.5 py-3 text-xs text-red-200"
+            className="flex items-start gap-3 rounded-[18px] border border-amber-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(255,251,235,0.96)_100%)] px-3.5 py-3 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]"
             role="alert"
           >
-            <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-red-400 shadow-[0_0_18px_rgba(248,113,113,0.45)]" />
+            <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_16px_rgba(251,191,36,0.24)]" />
             <div className="space-y-1">
-              <p className="font-medium text-red-100">这次生成没有完成</p>
-              <p className="leading-5 text-red-200/85">{error}</p>
+              <p className="font-medium text-slate-900">这次生成没有完成</p>
+              <p className="leading-5 text-slate-600">{error}</p>
             </div>
           </div>
         )}

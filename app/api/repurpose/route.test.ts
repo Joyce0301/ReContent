@@ -7,6 +7,7 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   vi.doUnmock("./kimi-client");
+  vi.doUnmock("./content-extraction");
 });
 
 async function loadRouteModule(): Promise<RouteModule> {
@@ -21,6 +22,24 @@ async function loadRouteModuleWithKimi(
   vi.doMock("./kimi-client", () => ({
     createKimiClient: () => ({ createJsonCompletion })
   }));
+
+  return import("./route");
+}
+
+async function loadRouteModuleWithExtractionMock(
+  extractContentFromUrlWithDiagnostics: ReturnType<typeof vi.fn>
+): Promise<RouteModule> {
+  vi.resetModules();
+  vi.doMock("./content-extraction", async () => {
+    const actual = await vi.importActual<typeof import("./content-extraction")>(
+      "./content-extraction"
+    );
+
+    return {
+      ...actual,
+      extractContentFromUrlWithDiagnostics
+    };
+  });
 
   return import("./route");
 }
@@ -68,6 +87,147 @@ describe("POST /api/repurpose", () => {
     expect(data.error).toBe(
       "个性化要求里包含可能干扰生成的指令，请只描述风格、口吻或表达方向"
     );
+  });
+
+  it("logs extraction diagnostics when URL extraction fails", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const extractionMock = vi.fn().mockResolvedValue({
+      content: null,
+      diagnostics: {
+        url: "https://example.com/fail-post",
+        normalizedUrl: "https://example.com/fail-post",
+        finalOutcome: "failure",
+        attempts: [
+          {
+            source: "site_specific",
+            outcome: "skipped",
+            failureReason: "unsupported_site"
+          },
+          {
+            source: "jina_reader",
+            outcome: "failed",
+            failureReason: "timeout"
+          },
+          {
+            source: "html",
+            outcome: "failed",
+            failureReason: "no_content"
+          }
+        ]
+      }
+    });
+    const { POST } = await loadRouteModuleWithExtractionMock(extractionMock);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "url",
+        url: "https://example.com/fail-post",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.errorCode).toBe("url_extraction_failed");
+    expect(data.extractionFailureReason).toBe("timeout");
+    expect(data.errorTitle).toBe("网页读取超时");
+    expect(data.error).toContain("网页响应超时");
+    expect(infoSpy).toHaveBeenCalledWith(
+      "content extraction",
+      expect.stringContaining('"failureReason":"timeout"')
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "content extraction",
+      expect.stringContaining('"finalOutcome":"failure"')
+    );
+  });
+
+  it("returns an invalid-url specific error payload", async () => {
+    const extractionMock = vi.fn().mockResolvedValue({
+      content: null,
+      diagnostics: {
+        url: "notaurl",
+        normalizedUrl: null,
+        finalOutcome: "failure",
+        attempts: [
+          {
+            source: "site_specific",
+            outcome: "skipped",
+            failureReason: "invalid_url"
+          }
+        ]
+      }
+    });
+    const { POST } = await loadRouteModuleWithExtractionMock(extractionMock);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "url",
+        url: "notaurl",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.extractionFailureReason).toBe("invalid_url");
+    expect(data.errorTitle).toBe("链接格式不正确");
+    expect(data.error).toContain("链接格式无效");
+  });
+
+  it("returns a network-error specific error payload", async () => {
+    const extractionMock = vi.fn().mockResolvedValue({
+      content: null,
+      diagnostics: {
+        url: "https://example.com/network-fail",
+        normalizedUrl: "https://example.com/network-fail",
+        finalOutcome: "failure",
+        attempts: [
+          {
+            source: "site_specific",
+            outcome: "skipped",
+            failureReason: "unsupported_site"
+          },
+          {
+            source: "jina_reader",
+            outcome: "failed",
+            failureReason: "network_error"
+          },
+          {
+            source: "html",
+            outcome: "failed",
+            failureReason: "network_error"
+          }
+        ]
+      }
+    });
+    const { POST } = await loadRouteModuleWithExtractionMock(extractionMock);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "url",
+        url: "https://example.com/network-fail",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.extractionFailureReason).toBe("network_error");
+    expect(data.errorTitle).toBe("网络连接异常");
+    expect(data.error).toContain("网络连接异常");
   });
 });
 
