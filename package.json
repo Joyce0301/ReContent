@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "test": "node --test app/api/repurpose/content-extraction.test.ts",
+    "test:extraction:fixtures": "npx vitest run app/api/repurpose/content-extraction.regression.test.ts app/api/repurpose/content-extraction.test.ts",
+    "test:extraction:live": "npx vitest run app/api/repurpose/content-extraction.live.test.ts",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",

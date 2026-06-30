@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { ExtractionErrorDialog } from "./components/recontent/extraction-error-dialog";
 import { RecontentHeader } from "./components/recontent/header";
 import { InputPanel } from "./components/recontent/input-panel";
 import { ResultSurface } from "./components/recontent/result-surface";
@@ -11,6 +12,20 @@ import {
   type RepurposeResult,
   type ToneKey
 } from "./components/recontent/types";
+
+type RepurposeErrorResponse = {
+  error?: string;
+  errorCode?: "url_extraction_failed";
+  extractionFailureReason?:
+    | "invalid_url"
+    | "timeout"
+    | "network_error"
+    | "http_error"
+    | "no_content"
+    | "unsupported_site";
+  errorTitle?: string;
+  errorDetail?: string;
+};
 
 export default function HomePage() {
   const [inputMode, setInputMode] = useState<InputMode>("text");
@@ -27,6 +42,10 @@ export default function HomePage() {
     status: "success" | "error";
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [extractionErrorDialog, setExtractionErrorDialog] = useState<{
+    detail: string;
+    title: string;
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const hasContent =
@@ -45,6 +64,7 @@ export default function HomePage() {
     if (!hasContent || selectedPlatforms.length === 0) return;
 
     setError(null);
+    setExtractionErrorDialog(null);
     startTransition(async () => {
       try {
         const res = await fetch("/api/repurpose", {
@@ -61,7 +81,22 @@ export default function HomePage() {
         });
 
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
+          const data = (await res.json().catch(
+            () => ({}) as RepurposeErrorResponse
+          )) as RepurposeErrorResponse;
+
+          if (
+            inputMode === "url" &&
+            data.errorCode === "url_extraction_failed" &&
+            data.errorTitle &&
+            data.errorDetail
+          ) {
+            setExtractionErrorDialog({
+              detail: data.errorDetail,
+              title: data.errorTitle
+            });
+          }
+
           throw new Error(data.error || "生成失败，请稍后重试。");
         }
 
@@ -114,46 +149,64 @@ export default function HomePage() {
     return () => window.clearTimeout(timeoutId);
   }, [copyFeedback]);
 
+  useEffect(() => {
+    setError(null);
+    setExtractionErrorDialog(null);
+  }, [inputMode]);
+
   return (
-    <main className="flex flex-1 flex-col gap-7">
-      <RecontentHeader />
+    <>
+      <main className="flex flex-1 flex-col gap-7">
+        <RecontentHeader />
 
-      <section className="grid flex-1 items-stretch gap-6 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.16fr)]">
-        <InputPanel
-          inputMode={inputMode}
-          sourceText={sourceText}
-          sourceUrl={sourceUrl}
-          selectedPlatforms={selectedPlatforms}
-          tone={tone}
-          customInstruction={customInstruction}
-          isPending={isPending}
-          error={error}
-          hasContent={hasContent}
-          onInputModeChange={setInputMode}
-          onSourceTextChange={setSourceText}
-          onSourceUrlChange={setSourceUrl}
-          onTogglePlatform={togglePlatform}
-          onSelectAllPlatforms={() => setSelectedPlatforms(DEFAULT_SELECTED_PLATFORMS)}
-          onToneChange={setTone}
-          onCustomInstructionChange={setCustomInstruction}
-          onSubmit={handleRepurpose}
-        />
+        <section className="grid flex-1 items-stretch gap-6 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.16fr)]">
+          <InputPanel
+            inputMode={inputMode}
+            sourceText={sourceText}
+            sourceUrl={sourceUrl}
+            selectedPlatforms={selectedPlatforms}
+            tone={tone}
+            customInstruction={customInstruction}
+            isPending={isPending}
+            error={error}
+            hasContent={hasContent}
+            onInputModeChange={setInputMode}
+            onSourceTextChange={setSourceText}
+            onSourceUrlChange={setSourceUrl}
+            onTogglePlatform={togglePlatform}
+            onSelectAllPlatforms={() =>
+              setSelectedPlatforms(DEFAULT_SELECTED_PLATFORMS)
+            }
+            onToneChange={setTone}
+            onCustomInstructionChange={setCustomInstruction}
+            onSubmit={handleRepurpose}
+          />
 
-        <ResultSurface
-          activePlatform={activePlatform}
-          copyStatus={
-            copyFeedback?.platform === activePlatform ? copyFeedback.status : null
-          }
-          results={results}
-          onActivePlatformChange={setActivePlatform}
-          onCopy={handleCopy}
-        />
-      </section>
+          <ResultSurface
+            activePlatform={activePlatform}
+            copyStatus={
+              copyFeedback?.platform === activePlatform
+                ? copyFeedback.status
+                : null
+            }
+            results={results}
+            onActivePlatformChange={setActivePlatform}
+            onCopy={handleCopy}
+          />
+        </section>
 
-      <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/90 pt-4 text-[11px] leading-5 text-slate-500">
-        <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
-        <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
-      </footer>
-    </main>
+        <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/90 pt-4 text-[11px] leading-5 text-slate-500">
+          <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
+          <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
+        </footer>
+      </main>
+
+      <ExtractionErrorDialog
+        detail={extractionErrorDialog?.detail ?? ""}
+        isOpen={Boolean(extractionErrorDialog)}
+        title={extractionErrorDialog?.title ?? ""}
+        onClose={() => setExtractionErrorDialog(null)}
+      />
+    </>
   );
 }

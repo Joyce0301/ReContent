@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { extractContentFromUrl } from "./content-extraction";
+import {
+  extractContentFromUrlWithDiagnostics,
+  type ExtractionDiagnostics,
+  type ExtractionFailureReason
+} from "./content-extraction";
 import { classifyFailure, compressCustomInstruction, decideRetryPlan } from "./failure-policy";
 import { createKimiClient } from "./kimi-client";
 import { buildRepurposeUserPrompt, type PromptMode } from "./prompt-builder";
@@ -45,6 +49,14 @@ type RepurposeRunTrace = {
   attemptCount: number;
   finalMode: GenerationMode;
   finalStatus: "success" | "failure";
+};
+
+type UrlExtractionErrorPayload = {
+  error: string;
+  errorCode: "url_extraction_failed";
+  extractionFailureReason: ExtractionFailureReason;
+  errorTitle: string;
+  errorDetail: string;
 };
 
 const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -126,14 +138,23 @@ export async function POST(req: Request) {
   }
 
   try {
+    let extractionDiagnostics: Awaited<
+      ReturnType<typeof extractContentFromUrlWithDiagnostics>
+    >["diagnostics"] | null = null;
     const sourceContent =
       body.mode === "text"
         ? body.text!.trim()
-        : await extractContentFromUrl(body.url!);
+        : await extractUrlContent(body.url!, diagnostics => {
+            extractionDiagnostics = diagnostics;
+          });
 
     if (!sourceContent) {
+      if (extractionDiagnostics) {
+        logContentExtraction(extractionDiagnostics);
+      }
+      const extractionError = buildUrlExtractionError(extractionDiagnostics);
       return NextResponse.json(
-        { error: "未能从内容中提取文本，请检查链接是否可访问" },
+        extractionError,
         { status: 400 }
       );
     }
@@ -175,6 +196,110 @@ function getAiProvider(): AiProvider {
   if (kimi) return "kimi";
   if (openai) return "openai";
   return "mock";
+}
+
+async function extractUrlContent(
+  url: string,
+  onDiagnostics: (diagnostics: ExtractionDiagnostics) => void
+) {
+  const result = await extractContentFromUrlWithDiagnostics(url);
+  onDiagnostics(result.diagnostics);
+  return result.content;
+}
+
+function buildUrlExtractionError(
+  diagnostics: ExtractionDiagnostics | null
+): UrlExtractionErrorPayload {
+  const reason = summarizeExtractionFailureReason(diagnostics);
+
+  if (reason === "timeout") {
+    return {
+      error: "网页响应超时，请稍后重试或换一个更稳定的链接",
+      errorCode: "url_extraction_failed",
+      extractionFailureReason: reason,
+      errorTitle: "网页读取超时",
+      errorDetail: "目标网页在限定时间内没有返回可用正文，你可以稍后重试，或换成原文更完整、更稳定的链接。"
+    };
+  }
+
+  if (reason === "http_error") {
+    return {
+      error: "网页暂时不可访问，或目标站点限制了抓取",
+      errorCode: "url_extraction_failed",
+      extractionFailureReason: reason,
+      errorTitle: "网页无法访问",
+      errorDetail: "这个链接可能需要登录、开启了反爬限制，或者当前响应异常。你可以换一个公开可访问的原文链接再试。"
+    };
+  }
+
+  if (reason === "network_error") {
+    return {
+      error: "网络连接异常，暂时没能读取这个网页",
+      errorCode: "url_extraction_failed",
+      extractionFailureReason: reason,
+      errorTitle: "网络连接异常",
+      errorDetail: "抓取过程中出现了网络波动，当前没能稳定读取目标网页。你可以稍后重试，或换一个访问更稳定的链接。"
+    };
+  }
+
+  if (reason === "invalid_url") {
+    return {
+      error: "链接格式无效，请检查后重新输入",
+      errorCode: "url_extraction_failed",
+      extractionFailureReason: reason,
+      errorTitle: "链接格式不正确",
+      errorDetail: "这个链接不是有效的 http 或 https 地址。请确认链接完整可用，再重新尝试。"
+    };
+  }
+
+  if (reason === "unsupported_site") {
+    return {
+      error: "当前站点结构较特殊，暂时还不能稳定解析",
+      errorCode: "url_extraction_failed",
+      extractionFailureReason: reason,
+      errorTitle: "暂不稳定支持该站点",
+      errorDetail: "这个网页的结构比较特殊，目前抓取成功率不稳定。你可以直接粘贴正文，或换一个更标准的文章页链接。"
+    };
+  }
+
+  return {
+    error: "网页可访问，但暂时没有提取到可用正文",
+    errorCode: "url_extraction_failed",
+    extractionFailureReason: reason,
+    errorTitle: "没有提取到正文",
+    errorDetail: "页面可能主要由短摘要、动态脚本或非正文模块组成。你可以直接粘贴原文内容，或换一个正文更完整的页面链接。"
+  };
+}
+
+function summarizeExtractionFailureReason(
+  diagnostics: ExtractionDiagnostics | null
+): ExtractionFailureReason {
+  const reasons =
+    diagnostics?.attempts
+      .map(attempt => attempt.failureReason)
+      .filter((reason): reason is ExtractionFailureReason => Boolean(reason)) ?? [];
+
+  if (reasons.includes("timeout")) {
+    return "timeout";
+  }
+
+  if (reasons.includes("http_error")) {
+    return "http_error";
+  }
+
+  if (reasons.includes("network_error")) {
+    return "network_error";
+  }
+
+  if (reasons.includes("unsupported_site")) {
+    return "unsupported_site";
+  }
+
+  if (reasons.includes("invalid_url")) {
+    return "invalid_url";
+  }
+
+  return "no_content";
 }
 
 async function generateWithModel(
@@ -657,4 +782,8 @@ function finalizeRunTrace(
 
 function logRunTrace(trace: RepurposeRunTrace) {
   console.info("repurpose run", JSON.stringify(trace));
+}
+
+function logContentExtraction(diagnostics: ExtractionDiagnostics) {
+  console.info("content extraction", JSON.stringify(diagnostics));
 }
