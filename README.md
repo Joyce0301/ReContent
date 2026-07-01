@@ -124,6 +124,38 @@ app/
 
 这部分已经覆盖到主页主流程，包括输入面板、平台筛选、风格设置、个性化输入和结果展示区域。
 
+## 小红书草稿连接器（桌面版）
+
+项目当前已经开始支持“小红书结果 -> 小红书创作页”的桌面桥接能力。
+
+使用方式：
+
+1. 打开 `extensions/xiaohongshu-draft-bridge`
+2. 在 Chrome / Edge 的扩展管理页加载这个目录
+3. 保持你的小红书创作者后台登录状态
+4. 在 ReContent 的小红书结果卡片点击 `发送到小红书草稿`
+
+当前边界：
+
+- 仅支持桌面 Chromium 浏览器
+- 当前桥接站点范围为 `localhost`、`127.0.0.1` 和 `*.pages.dev`
+- 只自动填充标题与正文
+- 标签会作为正文尾部建议一并带过去
+- 如果未登录，会提示你先登录再重新发送
+- 不自动点击保存草稿
+- 不自动发布
+- 没装扩展时，仍然可以继续使用 `复制内容` 方案手动粘贴
+
+如果要做浏览器级手工验收，建议优先打开：
+
+- [http://localhost:3000/xiaohongshu-draft-debug](http://localhost:3000/xiaohongshu-draft-debug)
+
+这个页面会发送固定测试 payload，不依赖你先跑完整的内容生成链路，更适合验证：
+
+- 未安装扩展时的安装提示
+- 已安装但未登录时的登录提示
+- 已安装且已登录时的自动填充结果
+
 ## 技术栈
 
 - `Next.js 16`
@@ -198,6 +230,31 @@ npx vitest run app/api/repurpose/route.test.ts \
   app/api/repurpose/kimi-client.test.ts \
   app/api/repurpose/content-extraction.test.ts
 ```
+
+如果要完整验证“小红书草稿连接器”这一轮改动，可直接运行：
+
+```bash
+npm run verify:xiaohongshu-draft
+```
+
+这条命令会顺序执行：
+
+- `npm run lint`
+- 小红书草稿连接器相关 `vitest`
+- `npm run build`
+
+如果你已经用带扩展的 Chromium 浏览器打开了调试页，还可以用 CDP 方式补充浏览器级证据：
+
+```bash
+npm run verify:xiaohongshu-draft:cdp -- --port=9228 --trigger
+```
+
+这条命令会：
+
+- 触发 `/xiaohongshu-draft-debug` 页面发送固定测试草稿
+- 自动等待小红书 creator 页面出现
+- 回读当前结果是 `login_required` 还是 `filled`
+- 在 `filled` 场景下输出标题和正文是否真实进入编辑器
 
 ## 协作约定
 

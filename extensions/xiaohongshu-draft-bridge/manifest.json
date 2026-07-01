@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ReContent Xiaohongshu Draft Bridge",
+  "version": "0.1.0",
+  "description": "Open Xiaohongshu Creator and prefill drafts from ReContent.",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.pages.dev/*",
+    "https://re-content.pages.dev/*",
+    "https://creator.xiaohongshu.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.pages.dev/*",
+        "https://re-content.pages.dev/*"
+      ],
+      "js": ["recontent-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["xiaohongshu-fill.js"],
+      "matches": ["https://creator.xiaohongshu.com/*"]
+    }
+  ]
+}

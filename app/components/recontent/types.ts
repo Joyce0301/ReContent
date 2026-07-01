@@ -18,6 +18,28 @@ export type RepurposeResult = {
   content: string;
 };
 
+export type XiaohongshuDraftPayload = {
+  sourceId: string;
+  title: string;
+  content: string;
+  tags: string[];
+};
+
+export type XiaohongshuDraftBridgeStatus =
+  | "idle"
+  | "opening"
+  | "filled"
+  | "login_required"
+  | "bridge_unavailable"
+  | "unsupported_page"
+  | "validation_error"
+  | "failed";
+
+export type XiaohongshuDraftBridgeResult = {
+  status: XiaohongshuDraftBridgeStatus;
+  message: string;
+};
+
 export type PlatformOption = {
   key: PlatformKey;
   label: string;
