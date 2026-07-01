@@ -2,12 +2,15 @@ import {
   PLATFORM_BADGES,
   PLATFORM_LABELS,
   type PlatformKey,
-  type RepurposeResult
+  type RepurposeResult,
+  type XiaohongshuDraftBridgeResult
 } from "./types";
 
 type ResultDocumentProps = {
   copyStatus?: "success" | "error" | null;
+  draftStatus?: XiaohongshuDraftBridgeResult | null;
   onCopy: (platform: PlatformKey, text: string) => void;
+  onSendToDraft: (result: RepurposeResult) => void;
   result: RepurposeResult;
 };
 
@@ -21,7 +24,9 @@ function formatParagraphs(content: string) {
 export function ResultDocument({
   result,
   onCopy,
-  copyStatus
+  copyStatus,
+  draftStatus,
+  onSendToDraft
 }: ResultDocumentProps) {
   const paragraphs = formatParagraphs(result.content);
   const copyText = result.title
@@ -44,6 +49,7 @@ export function ResultDocument({
     : isLinkedIn
       ? "text-slate-700"
       : "text-slate-700";
+  const isSendingToDraft = draftStatus?.status === "opening";
 
   return (
     <article className="flex h-full flex-col rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(242,246,250,0.96)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_18px_44px_rgba(148,163,184,0.12)]">
@@ -66,17 +72,42 @@ export function ResultDocument({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => onCopy(result.platform, copyText)}
-          className="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white/85 px-3.5 text-[11px] text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-        >
-          {copyStatus === "success"
-            ? "已复制"
-            : copyStatus === "error"
-              ? "复制失败"
-              : "复制内容"}
-        </button>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            {result.platform === "xiaohongshu" ? (
+              <button
+                type="button"
+                onClick={() => onSendToDraft(result)}
+                disabled={isSendingToDraft}
+                className="inline-flex min-h-9 items-center rounded-full bg-slate-900 px-3.5 text-[11px] text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                发送到小红书草稿
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onCopy(result.platform, copyText)}
+              className="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white/85 px-3.5 text-[11px] text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+            >
+              {copyStatus === "success"
+                ? "已复制"
+                : copyStatus === "error"
+                  ? "复制失败"
+                  : "复制内容"}
+            </button>
+          </div>
+          {result.platform === "xiaohongshu" && draftStatus ? (
+            <p className="max-w-[28rem] text-[11px] leading-5 text-slate-500">
+              {draftStatus.message}
+            </p>
+          ) : null}
+          {result.platform === "xiaohongshu" &&
+          draftStatus?.status === "bridge_unavailable" ? (
+            <p className="max-w-[28rem] text-[11px] leading-5 text-slate-500">
+              你仍然可以先点“复制内容”，手动粘贴到小红书创作页。
+            </p>
+          ) : null}
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto px-5 py-6 sm:px-6 sm:py-7">

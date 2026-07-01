@@ -6,11 +6,16 @@ import { RecontentHeader } from "./components/recontent/header";
 import { InputPanel } from "./components/recontent/input-panel";
 import { ResultSurface } from "./components/recontent/result-surface";
 import {
+  buildXiaohongshuDraftPayload,
+  sendDraftToXiaohongshuBridge
+} from "./lib/xiaohongshu-draft-bridge";
+import {
   DEFAULT_SELECTED_PLATFORMS,
   type InputMode,
   type PlatformKey,
   type RepurposeResult,
-  type ToneKey
+  type ToneKey,
+  type XiaohongshuDraftBridgeResult
 } from "./components/recontent/types";
 
 type RepurposeErrorResponse = {
@@ -27,6 +32,10 @@ type RepurposeErrorResponse = {
   errorDetail?: string;
 };
 
+function createRequestId() {
+  return globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}`;
+}
+
 export default function HomePage() {
   const [inputMode, setInputMode] = useState<InputMode>("text");
   const [sourceText, setSourceText] = useState("");
@@ -42,6 +51,8 @@ export default function HomePage() {
     status: "success" | "error";
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draftBridgeStatus, setDraftBridgeStatus] =
+    useState<XiaohongshuDraftBridgeResult | null>(null);
   const [extractionErrorDialog, setExtractionErrorDialog] = useState<{
     detail: string;
     title: string;
@@ -65,6 +76,7 @@ export default function HomePage() {
 
     setError(null);
     setExtractionErrorDialog(null);
+    setDraftBridgeStatus(null);
     startTransition(async () => {
       try {
         const res = await fetch("/api/repurpose", {
@@ -115,6 +127,31 @@ export default function HomePage() {
     } catch {
       setCopyFeedback({ platform, status: "error" });
     }
+  };
+
+  const handleActivePlatformChange = (platform: PlatformKey) => {
+    setDraftBridgeStatus(null);
+    setActivePlatform(platform);
+  };
+
+  const handleSendToDraft = async (result: RepurposeResult) => {
+    if (result.platform !== "xiaohongshu") {
+      return;
+    }
+
+    if (draftBridgeStatus?.status === "opening") {
+      return;
+    }
+
+    setDraftBridgeStatus({
+      status: "opening",
+      message: "正在打开你本机浏览器中的小红书创作页…"
+    });
+
+    const bridgeResult = await sendDraftToXiaohongshuBridge(
+      buildXiaohongshuDraftPayload(createRequestId(), result)
+    );
+    setDraftBridgeStatus(bridgeResult);
   };
 
   useEffect(() => {
@@ -189,9 +226,13 @@ export default function HomePage() {
                 ? copyFeedback.status
                 : null
             }
+            draftStatus={
+              activePlatform === "xiaohongshu" ? draftBridgeStatus : null
+            }
             results={results}
-            onActivePlatformChange={setActivePlatform}
+            onActivePlatformChange={handleActivePlatformChange}
             onCopy={handleCopy}
+            onSendToDraft={handleSendToDraft}
           />
         </section>
 

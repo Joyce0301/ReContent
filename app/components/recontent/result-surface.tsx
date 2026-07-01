@@ -3,23 +3,28 @@ import { ResultPlatformTabs } from "./result-platform-tabs";
 import {
   PLATFORM_LABELS,
   type PlatformKey,
-  type RepurposeResult
+  type RepurposeResult,
+  type XiaohongshuDraftBridgeResult
 } from "./types";
 
 type ResultSurfaceProps = {
   activePlatform: PlatformKey | null;
   copyStatus?: "success" | "error" | null;
+  draftStatus?: XiaohongshuDraftBridgeResult | null;
   results: RepurposeResult[];
   onActivePlatformChange: (platform: PlatformKey) => void;
   onCopy: (platform: PlatformKey, text: string) => void;
+  onSendToDraft: (result: RepurposeResult) => void;
 };
 
 export function ResultSurface({
   activePlatform,
   copyStatus,
+  draftStatus,
   results,
   onActivePlatformChange,
-  onCopy
+  onCopy,
+  onSendToDraft
 }: ResultSurfaceProps) {
   const activeResult =
     results.find(result => result.platform === activePlatform) ?? results[0] ?? null;
@@ -60,8 +65,10 @@ export function ResultSurface({
           <div className="flex-1">
             <ResultDocument
               copyStatus={copyStatus}
+              draftStatus={draftStatus}
               result={activeResult}
               onCopy={onCopy}
+              onSendToDraft={onSendToDraft}
             />
           </div>
         ) : (
