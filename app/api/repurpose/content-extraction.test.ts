@@ -47,6 +47,212 @@ describe("extractContentFromUrl", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("retries Jina Reader with a longer timeout when direct HTML is a verification shell", async () => {
+    const verificationShell = `
+      <html>
+        <head>
+          <title>OpenAI</title>
+          <meta http-equiv="refresh" content="360">
+        </head>
+        <body>
+          <main>
+            <div>OpenAI</div>
+            <div>${"Checking your browser before accessing this site. Please verify you are human before continuing. ".repeat(
+              30
+            )}</div>
+          </main>
+        </body>
+      </html>
+    `;
+    const jinaContent =
+      "# Introducing GeneBench-Pro\n\n" +
+      "Scientific data rarely arrive with instructions. ".repeat(20) +
+      "GeneBench-Pro evaluates whether models can reason over complex biological datasets. ".repeat(
+        10
+      );
+    let jinaCalls = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        jinaCalls += 1;
+        if (jinaCalls === 1) {
+          return new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          });
+        }
+
+        return new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+          setTimeout(() => resolve(makeResponse(jinaContent)), 25);
+        });
+      }
+
+      return Promise.resolve(makeResponse(verificationShell));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://openai.com/index/introducing-genebench-pro/",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("Introducing GeneBench-Pro");
+    expect(result.content).toContain("Scientific data rarely arrive");
+    expect(result.content).not.toContain("Checking your browser");
+    expect(result.diagnostics.finalSource).toBe("jina_reader");
+    expect(
+      result.diagnostics.attempts.filter(attempt => attempt.source === "jina_reader")
+    ).toHaveLength(2);
+  });
+
+  it("rejects Jina Reader anti-bot shells instead of treating them as article content", async () => {
+    const jinaChallenge = [
+      "Title: Just a moment...",
+      "",
+      "Warning: Target URL returned error 403: Forbidden",
+      "Warning: This page maybe not fully loaded, consider explicitly specify a timeout."
+    ].join("\n");
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse(jinaChallenge));
+      }
+
+      return Promise.resolve(
+        makeResponse(
+          "<html><head><title>OpenAI</title></head><body>Checking your browser</body></html>"
+        )
+      );
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://openai.com/index/introducing-genebench-pro/",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toBeNull();
+    expect(result.diagnostics.finalOutcome).toBe("failure");
+    expect(result.diagnostics.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "jina_reader",
+          outcome: "failed",
+          failureReason: "no_content"
+        })
+      ])
+    );
+  });
+
+  it("rejects generic Jina Reader browser challenge shells", async () => {
+    const jinaChallenge = [
+      "Just a moment.",
+      "Please enable JavaScript and cookies to continue.",
+      "Verify you are human before accessing this site.",
+      "Security check in progress."
+    ].join("\n");
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse(jinaChallenge));
+      }
+
+      return Promise.resolve(
+        makeResponse(
+          "<html><head><title>OpenAI</title></head><body>Checking your browser</body></html>"
+        )
+      );
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://openai.com/index/introducing-genebench-pro/",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toBeNull();
+    expect(result.diagnostics.finalOutcome).toBe("failure");
+    expect(result.diagnostics.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "jina_reader",
+          outcome: "failed",
+          failureReason: "no_content"
+        })
+      ])
+    );
+  });
+
+  it("retries Jina Reader after network errors when direct HTML is a verification shell", async () => {
+    const verificationShell = `
+      <html>
+        <head><title>Security Check</title></head>
+        <body>
+          <main>
+            <div>${"Checking your browser before accessing this site. Please verify you are human before continuing. ".repeat(
+              8
+            )}</div>
+          </main>
+        </body>
+      </html>
+    `;
+    const jinaContent =
+      "# Network Retry Article\n\n" +
+      "The reader eventually recovered after a transient upstream network error. ".repeat(
+        20
+      );
+    let jinaCalls = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        jinaCalls += 1;
+        if (jinaCalls === 1) {
+          return Promise.reject(new Error("ECONNRESET"));
+        }
+
+        return Promise.resolve(makeResponse(jinaContent));
+      }
+
+      return Promise.resolve(makeResponse(verificationShell));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://openai.com/index/network-retry-article/",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("Network Retry Article");
+    expect(result.diagnostics.finalSource).toBe("jina_reader");
+    expect(
+      result.diagnostics.attempts.filter(attempt => attempt.source === "jina_reader")
+    ).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        failureReason: "network_error"
+      }),
+      expect.objectContaining({
+        outcome: "success"
+      })
+    ]);
+  });
+
   it("uses Jina Reader content when it is long enough", async () => {
     const jinaContent =
       "# Example title\n\n" +
