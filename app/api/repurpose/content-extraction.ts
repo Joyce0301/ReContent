@@ -125,6 +125,16 @@ export async function extractContentFromUrlWithDiagnostics(
       return { content, diagnostics };
     }
 
+    const jinaRetryResult = await retryJinaExtractionIfTransientFailure(
+      normalizedUrl,
+      diagnostics,
+      fetcher,
+      timeoutMs
+    );
+    if (jinaRetryResult) {
+      return jinaRetryResult;
+    }
+
     const retryResult = await retryHtmlExtractionIfTransientFailure(
       normalizedUrl,
       diagnostics,
@@ -186,6 +196,16 @@ export async function extractContentFromUrlWithDiagnostics(
       return { content, diagnostics };
     }
 
+    const jinaRetryResult = await retryJinaExtractionIfTransientFailure(
+      normalizedUrl,
+      diagnostics,
+      fetcher,
+      timeoutMs
+    );
+    if (jinaRetryResult) {
+      return jinaRetryResult;
+    }
+
     const retryResult = await retryHtmlExtractionIfTransientFailure(
       normalizedUrl,
       diagnostics,
@@ -217,6 +237,16 @@ export async function extractContentFromUrlWithDiagnostics(
     return { content, diagnostics };
   }
 
+  const jinaRetryResult = await retryJinaExtractionIfTransientFailure(
+    normalizedUrl,
+    diagnostics,
+    fetcher,
+    timeoutMs
+  );
+  if (jinaRetryResult) {
+    return jinaRetryResult;
+  }
+
   const retryResult = await retryHtmlExtractionIfTransientFailure(
     normalizedUrl,
     diagnostics,
@@ -228,6 +258,53 @@ export async function extractContentFromUrlWithDiagnostics(
   }
 
   return { content: null, diagnostics };
+}
+
+async function retryJinaExtractionIfTransientFailure(
+  url: string,
+  diagnostics: ExtractionDiagnostics,
+  fetcher: Fetcher,
+  timeoutMs: number
+): Promise<ExtractionResult | null> {
+  if (!shouldRetryJinaExtraction(diagnostics)) {
+    return null;
+  }
+
+  const retryResult = await fetchWithJinaReader(
+    url,
+    fetcher,
+    timeoutMs * CONSERVATIVE_RETRY_TIMEOUT_MULTIPLIER
+  );
+  diagnostics.attempts.push(retryResult.attempt);
+
+  if (!isUsefulText(retryResult.text) && !isMeaningfulText(retryResult.text)) {
+    return null;
+  }
+
+  diagnostics.finalOutcome = "success";
+  diagnostics.finalSource = "jina_reader";
+  return {
+    content: cleanExtractedText(retryResult.text).slice(0, MAX_EXTRACTED_LENGTH),
+    diagnostics
+  };
+}
+
+function shouldRetryJinaExtraction(diagnostics: ExtractionDiagnostics) {
+  const jinaAttempts = diagnostics.attempts.filter(
+    attempt => attempt.source === "jina_reader"
+  );
+  if (jinaAttempts.length === 0) {
+    return false;
+  }
+
+  if (jinaAttempts.some(attempt => attempt.outcome === "success")) {
+    return false;
+  }
+
+  return jinaAttempts.some(
+    attempt =>
+      attempt.failureReason === "timeout" || attempt.failureReason === "network_error"
+  );
 }
 
 async function retryHtmlExtractionIfTransientFailure(
@@ -1289,17 +1366,44 @@ function looksLikeAccessChallengeText(
     cleaned.includes("去验证");
   const hasCaptchaMarker =
     cleaned.includes("requiring captcha") || cleaned.includes("captcha");
+  const hasBrowserChallengeMarker =
+    cleaned.includes("checking your browser") ||
+    cleaned.includes("verify you are human") ||
+    cleaned.includes("just a moment") ||
+    cleaned.includes("enable javascript and cookies") ||
+    cleaned.includes("attention required");
+  const hasGenericAccessMarker =
+    cleaned.includes("before accessing") ||
+    cleaned.includes("accessing this site") ||
+    cleaned.includes("security check") ||
+    cleaned.includes("browser verification");
+  const hasGenericBrowserChallenge =
+    hasBrowserChallengeMarker &&
+    (hasGenericAccessMarker ||
+      hasCaptchaMarker ||
+      cleaned.includes("please enable javascript") ||
+      cleaned.includes("enable cookies"));
+  const hasJinaHttpErrorShell =
+    cleaned.includes("title: just a moment") &&
+    cleaned.includes("target url returned error") &&
+    (cleaned.includes("403") || cleaned.includes("forbidden")) &&
+    /not\s+(?:yet\s+)?fully\s+loaded/.test(cleaned);
 
   if (context.source === "jina_reader") {
     return (
-      isWeChatUrl &&
-      hasWeChatReaderMarker &&
-      hasVerificationMarker &&
-      (hasCaptchaMarker || cleaned.length < 800)
+      hasJinaHttpErrorShell ||
+      hasGenericBrowserChallenge ||
+      (isWeChatUrl &&
+        hasWeChatReaderMarker &&
+        hasVerificationMarker &&
+        (hasCaptchaMarker || cleaned.length < 800))
     );
   }
 
-  return isWeChatUrl && hasVerificationMarker && hasCaptchaMarker && cleaned.length < 1200;
+  const hasWeChatHtmlChallenge =
+    isWeChatUrl && hasVerificationMarker && hasCaptchaMarker && cleaned.length < 1200;
+
+  return hasWeChatHtmlChallenge || hasGenericBrowserChallenge;
 }
 
 function shouldPreferHtmlResultOverJina(htmlText: string | null, jinaText: string | null) {
