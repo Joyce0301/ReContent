@@ -27,6 +27,7 @@ describe("buildXiaohongshuDraftPayload", () => {
 
 describe("sendDraftToXiaohongshuBridge", () => {
   afterEach(() => {
+    document.documentElement.removeAttribute("data-recontent-xiaohongshu-bridge");
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -83,7 +84,7 @@ describe("sendDraftToXiaohongshuBridge", () => {
       })
     ).resolves.toEqual({
       status: "bridge_unavailable",
-      message: "未检测到小红书草稿连接器，请先安装桌面扩展。"
+      message: "未检测到小红书草稿浏览器扩展，请先安装后再发送。"
     });
   });
 
@@ -107,8 +108,9 @@ describe("sendDraftToXiaohongshuBridge", () => {
     await expect(detectXiaohongshuDraftBridgeRelay()).resolves.toBe(true);
   });
 
-  it("waits for the relay marker before timing out", async () => {
+  it("does not show install guidance when the relay is ready but the request times out", async () => {
     vi.useFakeTimers();
+    document.documentElement.dataset.recontentXiaohongshuBridge = "ready";
 
     const promise = sendDraftToXiaohongshuBridge({
       sourceId: "req-1",
@@ -120,8 +122,8 @@ describe("sendDraftToXiaohongshuBridge", () => {
     await vi.advanceTimersByTimeAsync(30000);
 
     await expect(promise).resolves.toEqual({
-      status: "bridge_unavailable",
-      message: "未检测到小红书草稿连接器，请先安装桌面扩展。"
+      status: "failed",
+      message: "小红书浏览器扩展暂时没有响应，请刷新页面后重试。"
     });
   });
 

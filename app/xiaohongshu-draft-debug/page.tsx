@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { XiaohongshuBridgeInstallGuide } from "../components/recontent/xiaohongshu-bridge-install-guide";
 import { type XiaohongshuDraftBridgeResult } from "../components/recontent/types";
 import {
   detectXiaohongshuDraftBridgeRelay,
@@ -19,6 +20,7 @@ export default function XiaohongshuDraftDebugPage() {
   const [draftStatus, setDraftStatus] =
     useState<XiaohongshuDraftBridgeResult | null>(null);
   const [bridgeRelayReady, setBridgeRelayReady] = useState<boolean | null>(null);
+  const showBridgeInstallGuide = draftStatus?.status === "bridge_unavailable";
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +56,7 @@ export default function XiaohongshuDraftDebugPage() {
           小红书草稿桥验收页
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-          这个页面只用于本地验收小红书草稿连接器。它会发送一份固定的测试草稿，
+          这个页面只用于本地验收小红书草稿浏览器扩展。它会发送一份固定的测试草稿，
           帮我们稳定验证未安装扩展、未登录、已登录填充这三条链路。
         </p>
         <p className="mt-4 text-sm text-slate-600">
@@ -111,8 +113,13 @@ export default function XiaohongshuDraftDebugPage() {
         </div>
 
         {draftStatus ? (
-          <div className="mt-6 rounded-[20px] border border-slate-200 bg-white/90 px-4 py-3 text-sm leading-6 text-slate-700">
-            {draftStatus.message}
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-6 space-y-3 rounded-[20px] border border-slate-200 bg-white/90 px-4 py-3 text-sm leading-6 text-slate-700"
+          >
+            <p>{draftStatus.message}</p>
+            {showBridgeInstallGuide ? <XiaohongshuBridgeInstallGuide /> : null}
           </div>
         ) : null}
       </div>

@@ -5,6 +5,7 @@ import {
   type RepurposeResult,
   type XiaohongshuDraftBridgeResult
 } from "./types";
+import { XiaohongshuBridgeInstallGuide } from "./xiaohongshu-bridge-install-guide";
 
 type ResultDocumentProps = {
   copyStatus?: "success" | "error" | null;
@@ -50,6 +51,9 @@ export function ResultDocument({
       ? "text-slate-700"
       : "text-slate-700";
   const isSendingToDraft = draftStatus?.status === "opening";
+  const showBridgeInstallGuide =
+    result.platform === "xiaohongshu" &&
+    draftStatus?.status === "bridge_unavailable";
 
   return (
     <article className="flex h-full flex-col rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(242,246,250,0.96)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_18px_44px_rgba(148,163,184,0.12)]">
@@ -97,12 +101,20 @@ export function ResultDocument({
             </button>
           </div>
           {result.platform === "xiaohongshu" && draftStatus ? (
-            <p className="max-w-[28rem] text-[11px] leading-5 text-slate-500">
-              {draftStatus.message}
-            </p>
+            <div
+              role="status"
+              aria-live="polite"
+              className="max-w-[28rem] space-y-2"
+            >
+              <p className="text-[11px] leading-5 text-slate-500">
+                {draftStatus.message}
+              </p>
+              {showBridgeInstallGuide ? (
+                <XiaohongshuBridgeInstallGuide />
+              ) : null}
+            </div>
           ) : null}
-          {result.platform === "xiaohongshu" &&
-          draftStatus?.status === "bridge_unavailable" ? (
+          {showBridgeInstallGuide ? (
             <p className="max-w-[28rem] text-[11px] leading-5 text-slate-500">
               你仍然可以先点“复制内容”，手动粘贴到小红书创作页。
             </p>

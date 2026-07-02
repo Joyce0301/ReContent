@@ -97,7 +97,7 @@ describe("HomePage personalized prompt request", () => {
     });
     sendDraftToXiaohongshuBridgeMock.mockResolvedValue({
       status: "bridge_unavailable",
-      message: "未检测到小红书草稿连接器，请先安装桌面扩展。"
+      message: "未检测到小红书草稿浏览器扩展，请先安装后再发送。"
     });
 
     render(<HomePage />);
@@ -110,7 +110,20 @@ describe("HomePage personalized prompt request", () => {
       await screen.findByRole("button", { name: "发送到小红书草稿" })
     );
 
-    expect(await screen.findByText("未检测到小红书草稿连接器，请先安装桌面扩展。")).toBeTruthy();
+    expect(
+      await screen.findByText("未检测到小红书草稿浏览器扩展，请先安装后再发送。")
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "该功能目前仅支持 Chrome / Edge 桌面版，用于帮你打开小红书创作页并自动填入内容。"
+      )
+    ).toBeTruthy();
+    expect(screen.getByText("安装方式")).toBeTruthy();
+    expect(screen.getByText("1. 打开 chrome://extensions")).toBeTruthy();
+    expect(screen.getByText("2. 开启右上角“开发者模式”")).toBeTruthy();
+    expect(
+      screen.getByText("3. 加载 extensions/xiaohongshu-draft-bridge 目录")
+    ).toBeTruthy();
     expect(
       screen.getByText("你仍然可以先点“复制内容”，手动粘贴到小红书创作页。")
     ).toBeTruthy();

@@ -49,7 +49,8 @@ npm run verify:xiaohongshu-draft
 1. 不加载本扩展，直接打开 `http://localhost:3000/xiaohongshu-draft-debug`
 2. 点击 `发送测试草稿到小红书`
 4. 预期结果：
-   - 页面提示 `未检测到小红书草稿连接器，请先安装桌面扩展。`
+   - 页面提示 `未检测到小红书草稿浏览器扩展，请先安装后再发送。`
+   - 页面同时展示安装说明：`chrome://extensions` -> 开启开发者模式 -> 加载 `extensions/xiaohongshu-draft-bridge`
    - 页面不会卡死，仍可重复点击再次测试
 
 ### 2. 已安装扩展，但未登录小红书

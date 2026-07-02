@@ -12,6 +12,10 @@ const BRIDGE_TIMEOUT_MS = 30000;
 const BRIDGE_PROBE_TIMEOUT_MS = 150;
 const MAX_XIAOHONGSHU_TITLE_LENGTH = 20;
 const BRIDGE_READY_ATTRIBUTE = "data-recontent-xiaohongshu-bridge";
+const BRIDGE_UNAVAILABLE_MESSAGE =
+  "未检测到小红书草稿浏览器扩展，请先安装后再发送。";
+const BRIDGE_TIMEOUT_MESSAGE =
+  "小红书浏览器扩展暂时没有响应，请刷新页面后重试。";
 
 function createRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `draft-${Date.now()}`;
@@ -128,7 +132,7 @@ export async function sendDraftToXiaohongshuBridge(
   if (!(await detectXiaohongshuDraftBridgeRelay())) {
     return {
       status: "bridge_unavailable",
-      message: "未检测到小红书草稿连接器，请先安装桌面扩展。"
+      message: BRIDGE_UNAVAILABLE_MESSAGE
     };
   }
 
@@ -137,8 +141,8 @@ export async function sendDraftToXiaohongshuBridge(
     const timeoutId = window.setTimeout(() => {
       cleanup();
       resolve({
-        status: "bridge_unavailable",
-        message: "未检测到小红书草稿连接器，请先安装桌面扩展。"
+        status: "failed",
+        message: BRIDGE_TIMEOUT_MESSAGE
       });
     }, BRIDGE_TIMEOUT_MS);
 
