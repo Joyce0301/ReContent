@@ -312,12 +312,18 @@ async function fetchWithJinaReader(
     }
 
     const text = cleanExtractedText(await res.text());
+    const hasAccessChallenge = looksLikeAccessChallengeText(text, {
+      source: "jina_reader",
+      url
+    });
     return {
-      text,
+      text: hasAccessChallenge ? null : text,
       attempt: {
         source: "jina_reader",
-        outcome: isMeaningfulText(text) ? "success" : "failed",
-        failureReason: isMeaningfulText(text) ? undefined : "no_content"
+        outcome:
+          !hasAccessChallenge && isMeaningfulText(text) ? "success" : "failed",
+        failureReason:
+          !hasAccessChallenge && isMeaningfulText(text) ? undefined : "no_content"
       }
     };
   } catch (error) {
@@ -416,6 +422,22 @@ async function fetchAndExtractHtml(
     }
 
     const cleaned = cleanExtractedText(text, pageTitle);
+    if (
+      looksLikeAccessChallengeText(cleaned, {
+        source: "html",
+        url
+      })
+    ) {
+      return {
+        text: null,
+        attempt: {
+          source: "html",
+          outcome: "failed",
+          failureReason: "no_content"
+        }
+      };
+    }
+
     const acceptedShortContent =
       isMeaningfulText(cleaned) ||
       (preferredMetadataSummary && isSummaryLikeText(cleaned));
@@ -1238,6 +1260,46 @@ function looksLikeListingContent(text: string | null) {
       .length;
 
   return archiveSignals >= 1 || shortLineCount >= 12;
+}
+
+function looksLikeAccessChallengeText(
+  text: string | null,
+  context: { source: ExtractionSource; url: string }
+) {
+  if (!text) {
+    return false;
+  }
+
+  const cleaned = cleanExtractedText(text).toLowerCase();
+  const hostname = (() => {
+    try {
+      return new URL(context.url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+  const isWeChatUrl = hostname === "mp.weixin.qq.com";
+  const hasWeChatReaderMarker =
+    cleaned.includes("weixin official accounts platform") ||
+    cleaned.includes("url source: https://mp.weixin.qq.com/") ||
+    cleaned.includes("mp.weixin.qq.com/s/");
+  const hasVerificationMarker =
+    cleaned.includes("环境异常") ||
+    cleaned.includes("完成验证后即可继续访问") ||
+    cleaned.includes("去验证");
+  const hasCaptchaMarker =
+    cleaned.includes("requiring captcha") || cleaned.includes("captcha");
+
+  if (context.source === "jina_reader") {
+    return (
+      isWeChatUrl &&
+      hasWeChatReaderMarker &&
+      hasVerificationMarker &&
+      (hasCaptchaMarker || cleaned.length < 800)
+    );
+  }
+
+  return isWeChatUrl && hasVerificationMarker && hasCaptchaMarker && cleaned.length < 1200;
 }
 
 function shouldPreferHtmlResultOverJina(htmlText: string | null, jinaText: string | null) {

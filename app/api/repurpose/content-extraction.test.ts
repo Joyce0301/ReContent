@@ -719,6 +719,98 @@ describe("extractContentFromUrl", () => {
     expect(result).not.toContain("作者信息");
   });
 
+  it("ignores WeChat access challenge text from Jina and falls back to article HTML", async () => {
+    const jinaChallenge = `
+      Title: Weixin Official Accounts Platform
+
+      URL Source: https://mp.weixin.qq.com/s/demo
+
+      Warning: This page maybe requiring CAPTCHA, please make sure you are authorized to access this page.
+
+      Markdown Content:
+      ## 环境异常
+
+      当前环境异常，完成验证后即可继续访问。
+
+      [去验证](https://mp.weixin.qq.com/s/demo)
+    `;
+    const html = `
+      <html>
+        <head>
+          <title>Loop Engineering 实践指南</title>
+          <meta property="og:title" content="Loop Engineering 实践指南" />
+        </head>
+        <body>
+          <div id="activity-name">Loop Engineering 实践指南</div>
+          <section id="js_content">
+            <p>${"Loop Engineering 是围绕大模型构建自主循环运行系统，让 AI 从单次响应工具升级为长期自治代理。".repeat(
+              5
+            )}</p>
+            <p>${"这类文章需要在 Jina 返回访问验证页时继续等待 HTML 兜底，否则用户会看到生成无法完成。".repeat(
+              5
+            )}</p>
+          </section>
+        </body>
+      </html>
+    `;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse(jinaChallenge));
+      }
+
+      return Promise.resolve(makeResponse(html));
+    });
+
+    const result = await extractContentFromUrl("https://mp.weixin.qq.com/s/demo", {
+      fetcher: fetchMock,
+      timeoutMs: 50
+    });
+
+    expect(result).toContain("Loop Engineering 实践指南");
+    expect(result).toContain("自主循环运行系统");
+    expect(result).toContain("HTML 兜底");
+    expect(result).not.toContain("环境异常");
+    expect(result).not.toContain("去验证");
+  });
+
+  it("does not drop legitimate articles that discuss access challenges", async () => {
+    const html = `
+      <html>
+        <head><title>排查访问验证问题</title></head>
+        <body>
+          <article>
+            <p>${"这篇文章讨论环境异常、去验证和 CAPTCHA 这些现象，但它本身是一篇正常的技术复盘。".repeat(
+              6
+            )}</p>
+            <p>${"作者解释 complete verification 提示如何影响内容抽取，并给出监控、重试和用户提示策略。".repeat(
+              6
+            )}</p>
+          </article>
+        </body>
+      </html>
+    `;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse("Too short"));
+      }
+
+      return Promise.resolve(makeResponse(html));
+    });
+
+    const result = await extractContentFromUrl("https://example.com/access-review", {
+      fetcher: fetchMock,
+      timeoutMs: 50
+    });
+
+    expect(result).toContain("正常的技术复盘");
+    expect(result).toContain("complete verification");
+    expect(result).toContain("用户提示策略");
+  });
+
   it("extracts nested JSON-LD array content when articleBody is split into blocks", async () => {
     const html = `
       <html>
