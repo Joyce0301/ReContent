@@ -252,6 +252,41 @@ describe("POST /api/repurpose", () => {
 });
 
 describe("POST /api/repurpose retry policy", () => {
+  it("only sends requested platform rules to the model prompt", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValue('{"results":[{"platform":"twitter","content":"ok"}]}');
+
+    const { POST } = await loadRouteModuleWithKimi(createJsonCompletion);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(createJsonCompletion).toHaveBeenCalledTimes(1);
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).toContain(
+      "Twitter / X 推文串"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      "LinkedIn 帖子：1 篇 800-1500 字左右的长帖"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      "小红书笔记：1 篇中文笔记"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      '"platform": "xiaohongshu"'
+    );
+  });
+
   it("retries in normal mode after a transient failure", async () => {
     const createJsonCompletion = vi
       .fn()
@@ -381,6 +416,45 @@ describe("POST /api/repurpose retry policy", () => {
     );
     expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
       "风格偏创始人口吻，表达克制，弱化营销感，保留少量叙事感"
+    );
+  });
+
+  it("uses a compact conservative xiaohongshu prompt after a fallback", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce("not-json")
+      .mockResolvedValueOnce(
+        '{"results":[{"platform":"xiaohongshu","title":"标题","content":"保守模式成功"}]}'
+      );
+
+    const { POST } = await loadRouteModuleWithKimi(createJsonCompletion);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["xiaohongshu"],
+        tone: "neutral",
+        customInstruction: "更像真实博主分享，但表达克制一点"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.results[0].platform).toBe("xiaohongshu");
+    expect(createJsonCompletion).toHaveBeenCalledTimes(2);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.15);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "正文（约 300-600 字）"
+    );
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "正文用 2-4 个短段完成主要观点"
+    );
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "可进一步减少细节、例子和标签数量"
     );
   });
 });
