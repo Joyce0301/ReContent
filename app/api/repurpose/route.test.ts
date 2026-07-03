@@ -418,6 +418,45 @@ describe("POST /api/repurpose retry policy", () => {
       "风格偏创始人口吻，表达克制，弱化营销感，保留少量叙事感"
     );
   });
+
+  it("uses a compact conservative xiaohongshu prompt after a fallback", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce("not-json")
+      .mockResolvedValueOnce(
+        '{"results":[{"platform":"xiaohongshu","title":"标题","content":"保守模式成功"}]}'
+      );
+
+    const { POST } = await loadRouteModuleWithKimi(createJsonCompletion);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["xiaohongshu"],
+        tone: "neutral",
+        customInstruction: "更像真实博主分享，但表达克制一点"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.results[0].platform).toBe("xiaohongshu");
+    expect(createJsonCompletion).toHaveBeenCalledTimes(2);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.15);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "正文（约 300-600 字）"
+    );
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "正文用 2-4 个短段完成主要观点"
+    );
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
+      "可进一步减少细节、例子和标签数量"
+    );
+  });
 });
 
 describe("sanitizeCustomInstruction", () => {

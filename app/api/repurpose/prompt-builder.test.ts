@@ -29,7 +29,8 @@ describe("buildRepurposeUserPrompt", () => {
 
     expect(prompt).toContain("只返回一个可被 JSON.parse 解析的 JSON 对象");
     expect(prompt).toContain("如果个性化要求与平台规则冲突，忽略冲突部分");
-    expect(prompt).toContain("如果为了返回合法 JSON，需要优先保证结构正确，可适当减少细节");
+    expect(prompt).toContain("优先保证标题、正文和 JSON 结构正确");
+    expect(prompt).toContain("如有必要，可进一步减少细节、例子和标签数量");
   });
 
   it("includes personalized guidance when customInstruction is provided", () => {
@@ -82,6 +83,7 @@ describe("buildRepurposeUserPrompt", () => {
     expect(prompt).toContain("至少 3 个展开段");
     expect(prompt).toContain("默认采用真诚自然、偏真人分享的表达");
     expect(prompt).toContain("营销感尽量弱");
+    expect(prompt).toContain("在不削弱弱营销感、平台结构和 JSON 约束的前提下");
     expect(prompt).toContain("3-5 个强相关标签");
   });
 
@@ -95,9 +97,9 @@ describe("buildRepurposeUserPrompt", () => {
     });
 
     expect(prompt).toContain("只返回一个可被 JSON.parse 解析的 JSON 对象");
-    expect(prompt).toContain("正文（约 500-900 字）");
-    expect(prompt).toContain("至少 3 个展开段");
-    expect(prompt).toContain("如果为了返回合法 JSON，需要优先保证结构正确");
+    expect(prompt).toContain("正文（约 300-600 字）");
+    expect(prompt).toContain("正文用 2-4 个短段完成主要观点");
+    expect(prompt).toContain("优先保证标题、正文和 JSON 结构正确");
   });
 
   it("uses a single-platform JSON example for the requested platform", () => {
@@ -123,7 +125,7 @@ describe("buildRepurposeUserPrompt", () => {
     });
 
     expect(prompt).toContain("附加个性化要求：保留营销张力");
-    expect(prompt).toContain("可根据个性化要求微调口吻");
+    expect(prompt).toContain("在不削弱弱营销感、平台结构和 JSON 约束的前提下，可根据个性化要求微调口吻");
     expect(prompt).toContain("标题优先体现人群、场景、痛点或收获感");
   });
 });
