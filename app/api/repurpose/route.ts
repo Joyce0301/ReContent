@@ -104,8 +104,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
   }
 
-  if (!body.platforms || body.platforms.length === 0) {
-    return NextResponse.json({ error: "至少选择一个目标平台" }, { status: 400 });
+  const requestedPlatform = normalizeRequestedPlatform(body.platforms);
+  if (!requestedPlatform.value) {
+    return NextResponse.json({ error: requestedPlatform.error }, { status: 400 });
   }
 
   if (body.mode === "text") {
@@ -162,16 +163,16 @@ export async function POST(req: Request) {
     const provider = getAiProvider();
     const results =
       provider === "mock"
-        ? generateMockResults(sourceContent, body.platforms, body.tone)
+        ? generateMockResults(sourceContent, requestedPlatform.value, body.tone)
         : await generateWithModel(
             provider,
             sourceContent,
-            body.platforms,
+            requestedPlatform.value,
             body.tone,
             sanitizedInstruction.value,
             {
               mode: body.mode,
-              targetPlatforms: body.platforms,
+              targetPlatforms: [requestedPlatform.value],
               hasCustomInstruction: sanitizedInstruction.value.length > 0
             }
           );
@@ -305,7 +306,7 @@ function summarizeExtractionFailureReason(
 async function generateWithModel(
   provider: Exclude<AiProvider, "mock">,
   source: string,
-  platforms: PlatformKey[],
+  platform: PlatformKey,
   tone: RequestBody["tone"],
   customInstruction?: string,
   traceSeed?: Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">
@@ -313,7 +314,7 @@ async function generateWithModel(
   let attemptCount = 0;
   let mode: GenerationMode = "normal";
   let lastError: Error | null = null;
-  const trace = createRunTrace(traceSeed, platforms, customInstruction);
+  const trace = createRunTrace(traceSeed, [platform], customInstruction);
 
   while (attemptCount < 3) {
     attemptCount += 1;
@@ -322,7 +323,7 @@ async function generateWithModel(
       const attempt = await generateAttempt({
         provider,
         source,
-        platforms,
+        platform,
         tone,
         customInstruction,
         mode
@@ -409,7 +410,7 @@ async function generateWithModel(
 async function generateAttempt(input: {
   provider: Exclude<AiProvider, "mock">;
   source: string;
-  platforms: PlatformKey[];
+  platform: PlatformKey;
   tone: RequestBody["tone"];
   customInstruction?: string;
   mode: GenerationMode;
@@ -422,6 +423,7 @@ async function generateAttempt(input: {
   const userPrompt = buildRepurposeUserPrompt({
     source: input.source,
     tone: input.tone,
+    platform: input.platform,
     customInstruction: fallbackInstruction,
     sourceCharLimit,
     mode: input.mode
@@ -445,7 +447,7 @@ async function generateAttempt(input: {
     };
   }
 
-  const parsedOutcome = parseRepurposePayload(rawOutput);
+  const parsedOutcome = parseRepurposePayload(rawOutput, input.platform);
   if (!parsedOutcome.parsed) {
     return {
       rawOutput,
@@ -455,11 +457,9 @@ async function generateAttempt(input: {
     };
   }
 
-  const filtered = parsedOutcome.parsed.results.filter(result =>
-    input.platforms.includes(result.platform)
-  );
   const hasContent =
-    filtered.length > 0 && filtered.every(result => result.content.trim().length > 0);
+    parsedOutcome.parsed.results.length === 1 &&
+    parsedOutcome.parsed.results.every(result => result.content.trim().length > 0);
 
   if (!hasContent) {
     return {
@@ -474,7 +474,7 @@ async function generateAttempt(input: {
     rawOutput,
     parsedValid: true,
     hasContent: true,
-    results: filtered
+    results: parsedOutcome.parsed.results
   };
 }
 
@@ -620,11 +620,14 @@ export function parseRepurposeResponse(raw: string): ParsedRepurposeResponse | n
   return parseRepurposePayload(raw).parsed;
 }
 
-function parseRepurposePayload(raw: string): {
+function parseRepurposePayload(
+  raw: string,
+  requestedPlatform?: PlatformKey
+): {
   parsed: ParsedRepurposeResponse | null;
   parsedValid?: boolean;
 } {
-  const directParsed = parseRepurposeJson(raw);
+  const directParsed = parseRepurposeJson(raw, requestedPlatform);
   if (directParsed.parsed || directParsed.parsedValid === false) {
     return directParsed;
   }
@@ -634,7 +637,7 @@ function parseRepurposePayload(raw: string): {
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .trim();
-  const fencedParsed = parseRepurposeJson(fenced);
+  const fencedParsed = parseRepurposeJson(fenced, requestedPlatform);
   if (fencedParsed.parsed || fencedParsed.parsedValid === false) {
     return fencedParsed;
   }
@@ -645,10 +648,13 @@ function parseRepurposePayload(raw: string): {
     return { parsed: null };
   }
 
-  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1));
+  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1), requestedPlatform);
 }
 
-function parseRepurposeJson(raw: string): {
+function parseRepurposeJson(
+  raw: string,
+  requestedPlatform?: PlatformKey
+): {
   parsed: ParsedRepurposeResponse | null;
   parsedValid?: boolean;
 } {
@@ -658,7 +664,17 @@ function parseRepurposeJson(raw: string): {
       return { parsed: null, parsedValid: false };
     }
 
-    const hasInvalidResult = parsed.results.some(result => {
+    const candidateResults = requestedPlatform
+      ? parsed.results.filter(
+          result => result && typeof result === "object" && result.platform === requestedPlatform
+        )
+      : parsed.results;
+
+    if (candidateResults.length === 0) {
+      return { parsed: null, parsedValid: false };
+    }
+
+    const hasInvalidResult = candidateResults.some(result => {
       if (!result || typeof result !== "object") {
         return true;
       }
@@ -683,7 +699,10 @@ function parseRepurposeJson(raw: string): {
 
     return hasInvalidResult
       ? { parsed: null, parsedValid: false }
-      : { parsed, parsedValid: true };
+      : {
+          parsed: { results: candidateResults },
+          parsedValid: true
+        };
   } catch {
     return { parsed: null };
   }
@@ -691,7 +710,7 @@ function parseRepurposeJson(raw: string): {
 
 function generateMockResults(
   source: string,
-  platforms: PlatformKey[],
+  platform: PlatformKey,
   tone: RequestBody["tone"]
 ) {
   const short = source.slice(0, 400);
@@ -701,9 +720,9 @@ function generateMockResults(
   const toneLabel =
     tone === "formal" ? "【正式风格示例】" : tone === "casual" ? "【轻松风格示例】" : "【中性风格示例】";
 
-  return platforms.map(platform => {
-    if (platform === "twitter") {
-      return {
+  if (platform === "twitter") {
+    return [
+      {
         platform,
         content: `${toneLabel}
 推文 1️⃣
@@ -714,11 +733,13 @@ ${baseIntro}
 
 推文 3️⃣
 给出一个可操作的小技巧或行动建议，引导读者转化或继续阅读长内容链接。`
-      };
-    }
+      }
+    ];
+  }
 
-    if (platform === "linkedin") {
-      return {
+  if (platform === "linkedin") {
+    return [
+      {
         platform,
         content: `${toneLabel}
 【引子】
@@ -730,10 +751,12 @@ ${baseIntro}
 
 【结尾 CTA】
 用 1-2 句引导读者行动，例如点赞、评论分享经验、或点击原文链接阅读全文。`
-      };
-    }
+      }
+    ];
+  }
 
-    return {
+  return [
+    {
       platform,
       title: "示例：把一篇长文拆成高转化小红书笔记",
       content: `${toneLabel}
@@ -744,12 +767,32 @@ ${baseIntro}
 第三段：给出一个简单可执行的小步骤或清单，帮助读者马上应用。
 
 最后一段：用 2-3 个带 # 的标签收尾，例如：#内容创作 #自媒体 #AI工具（实际使用时请替换为更贴近内容的标签）。`
-    };
-  });
+    }
+  ];
 }
 
 function countCodePoints(input: string) {
   return Array.from(input).length;
+}
+
+function normalizeRequestedPlatform(input: unknown): {
+  value?: PlatformKey;
+  error: string;
+} {
+  if (!Array.isArray(input) || input.length === 0) {
+    return { error: "至少选择一个目标平台" };
+  }
+
+  if (input.length !== 1) {
+    return { error: "请一次只选择一个目标平台" };
+  }
+
+  const platform = input[0];
+  if (platform === "twitter" || platform === "linkedin" || platform === "xiaohongshu") {
+    return { value: platform, error: "" };
+  }
+
+  return { error: "请选择有效的目标平台" };
 }
 
 function createRunTrace(

@@ -31,6 +31,9 @@ describe("HomePage personalized prompt request", () => {
 
     expect(screen.getByText("个性化要求")).toBeTruthy();
     expect(
+      screen.getByText("每次只生成 1 个平台版本，优先保证解析稳定和成稿质量。")
+    ).toBeTruthy();
+    expect(
       screen.getByText("补充你希望成稿更像什么风格、口吻或表达方向。")
     ).toBeTruthy();
     expect(screen.getByLabelText("个性化要求输入框")).toBeTruthy();
@@ -56,6 +59,29 @@ describe("HomePage personalized prompt request", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("更像创始人发言");
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain('"platforms":["twitter"]');
+  });
+
+  it("sends only the actively selected platform in the repurpose request body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [] })
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<HomePage />);
+
+    fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
+      target: { value: "A valid source article" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "小红书笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      '"platforms":["xiaohongshu"]'
+    );
   });
 
   it("shows the send-to-draft action on xiaohongshu results", async () => {

@@ -68,9 +68,7 @@ export const PLATFORM_OPTIONS: PlatformOption[] = [
   }
 ];
 
-export const DEFAULT_SELECTED_PLATFORMS = PLATFORM_OPTIONS.map(
-  option => option.key
-);
+export const DEFAULT_SELECTED_PLATFORM: PlatformKey = PLATFORM_OPTIONS[0].key;
 
 export const PLATFORM_LABELS: Record<PlatformKey, string> = Object.fromEntries(
   PLATFORM_OPTIONS.map(option => [option.key, option.label])
