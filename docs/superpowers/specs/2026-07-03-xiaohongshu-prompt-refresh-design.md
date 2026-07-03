@@ -55,6 +55,16 @@
 - 最近的实操总结中，知识/经验类笔记常见结构为：
   - 痛点场景 -> 方法拆解 -> 分点展开 -> 结果/总结 -> 互动收口
 
+参考链接：
+
+- 小红书官方《商家热搜词发布攻略》：
+  - https://fe.xiaohongshu.com/apps/vincent/barley?fullscreen=true&id=ba0aee82139d40739ee31731406736b6&naviHidden=yes&utm_source=social
+- 2025 内容营销观察：
+  - https://www.fxbaogao.com/detail/4965172
+- 小红书内容实操总结：
+  - https://www.huasheng.ai/insights/xiaohongshu-best-practices/
+  - https://www.digitaling.com/articles/1317637.html
+
 这些结论用于指导 prompt 风格，不作为硬编码模板逐字复制。
 
 ## 设计原则
@@ -104,7 +114,7 @@ prompt 需要鼓励：
 
 ## Prompt 改动方案
 
-仅修改 `app/api/repurpose/prompt-builder.ts` 中的小红书平台描述与相关通用提示，不改变函数签名。
+仅修改 `app/api/repurpose/prompt-builder.ts` 中的平台规则生成方式和小红书平台描述，不改变 API 出参结构。
 
 ### 当前规则
 
@@ -127,12 +137,21 @@ prompt 需要鼓励：
   - 每段尽量提供解释、例子、方法、对比或适用场景
   - 结尾给出一句轻互动或总结，不写生硬 CTA
 - 文风：
-  - 更像真人分享经验，而不是复述原文
+  - 默认更像真人分享经验，而不是复述原文
   - 真诚、自然、弱营销感
+  - 如用户个性化要求有明确风格倾向，可在不破坏平台结构的前提下微调口吻
   - 允许适量 emoji，但不堆砌
 - 标签：
   - 3-5 个强相关标签
   - 不要用不相关热点凑数
+
+### Conservative mode 补充
+
+为了降低长文本导致的 JSON 解析风险，conservative mode 下的小红书规则会额外强调：
+
+- 优先返回合法 JSON
+- 如有必要，可适度降低细节密度
+- 仍需保留核心信息与基本展开结构
 
 ## 推荐输出心智
 
@@ -152,7 +171,10 @@ prompt 需要鼓励：
 - `buildRepurposeUserPrompt` 仍返回统一大 prompt
 - 失败重试与 conservative mode 保持原逻辑
 
-唯一变化是：当请求包含小红书平台时，模型会收到更明确、更偏详细的风格约束。
+唯一变化是：
+
+- prompt 只包含本次请求的平台规则与 JSON 示例
+- 当请求包含小红书平台时，模型会收到更明确、更偏详细的风格约束
 
 ## 测试策略
 

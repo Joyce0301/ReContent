@@ -252,6 +252,41 @@ describe("POST /api/repurpose", () => {
 });
 
 describe("POST /api/repurpose retry policy", () => {
+  it("only sends requested platform rules to the model prompt", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValue('{"results":[{"platform":"twitter","content":"ok"}]}');
+
+    const { POST } = await loadRouteModuleWithKimi(createJsonCompletion);
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(createJsonCompletion).toHaveBeenCalledTimes(1);
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).toContain(
+      "Twitter / X 推文串"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      "LinkedIn 帖子：1 篇 800-1500 字左右的长帖"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      "小红书笔记：1 篇中文笔记"
+    );
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).not.toContain(
+      '"platform": "xiaohongshu"'
+    );
+  });
+
   it("retries in normal mode after a transient failure", async () => {
     const createJsonCompletion = vi
       .fn()

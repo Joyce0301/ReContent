@@ -22,13 +22,14 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Source content",
       tone: "neutral",
-      platform: "linkedin",
+      platform: "xiaohongshu",
       customInstruction: "风格偏创始人口吻，表达克制",
       mode: "conservative"
     });
 
     expect(prompt).toContain("只返回一个可被 JSON.parse 解析的 JSON 对象");
     expect(prompt).toContain("如果个性化要求与平台规则冲突，忽略冲突部分");
+    expect(prompt).toContain("如果为了返回合法 JSON，需要优先保证结构正确，可适当减少细节");
   });
 
   it("includes personalized guidance when customInstruction is provided", () => {
@@ -67,16 +68,62 @@ describe("buildRepurposeUserPrompt", () => {
     expect(prompt).not.toContain("附加个性化要求：  更有故事感  ");
   });
 
-  it("uses a single-platform JSON example for the requested platform", () => {
+  it("describes xiaohongshu as a detailed share-style note", () => {
     const prompt = buildRepurposeUserPrompt({
-      source: "Original source content",
+      source: "Source content",
       tone: "neutral",
-      platform: "xiaohongshu"
+      platform: "xiaohongshu",
+      customInstruction: "更像真实博主分享"
     });
 
-    expect(prompt).toContain('"platform": "xiaohongshu"');
-    expect(prompt).toContain('"title": "小红书标题"');
-    expect(prompt).not.toContain('"platform": "twitter"');
+    expect(prompt).toContain("小红书笔记：1 篇中文笔记");
+    expect(prompt).toContain("正文（约 700-1200 字）");
+    expect(prompt).toContain("从具体场景、问题、感受或观察切入");
+    expect(prompt).toContain("至少 3 个展开段");
+    expect(prompt).toContain("默认采用真诚自然、偏真人分享的表达");
+    expect(prompt).toContain("营销感尽量弱");
+    expect(prompt).toContain("3-5 个强相关标签");
+  });
+
+  it("keeps conservative mode strict while using the refreshed xiaohongshu guidance", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Source content",
+      tone: "neutral",
+      platform: "xiaohongshu",
+      customInstruction: "更克制、更专业",
+      mode: "conservative"
+    });
+
+    expect(prompt).toContain("只返回一个可被 JSON.parse 解析的 JSON 对象");
+    expect(prompt).toContain("正文（约 500-900 字）");
+    expect(prompt).toContain("至少 3 个展开段");
+    expect(prompt).toContain("如果为了返回合法 JSON，需要优先保证结构正确");
+  });
+
+  it("uses a single-platform JSON example for the requested platform", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Source content",
+      tone: "neutral",
+      platform: "twitter"
+    });
+
+    expect(prompt).toContain('"platform": "twitter"');
+    expect(prompt).not.toContain("LinkedIn 帖子：1 篇 800-1500 字左右的长帖");
+    expect(prompt).not.toContain("小红书笔记：1 篇中文笔记");
     expect(prompt).not.toContain('"platform": "linkedin"');
+    expect(prompt).not.toContain('"platform": "xiaohongshu"');
+  });
+
+  it("keeps xiaohongshu style as a default that custom instructions can tune", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Source content",
+      tone: "neutral",
+      platform: "xiaohongshu",
+      customInstruction: "保留营销张力"
+    });
+
+    expect(prompt).toContain("附加个性化要求：保留营销张力");
+    expect(prompt).toContain("可根据个性化要求微调口吻");
+    expect(prompt).toContain("标题优先体现人群、场景、痛点或收获感");
   });
 });
