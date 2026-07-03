@@ -33,7 +33,10 @@ export function FilterChipGroup<T extends string>({
             }`}
           >
             {option.leading && (
-              <span className="inline-flex min-w-4 items-center justify-center text-[11px]">
+              <span
+                aria-hidden="true"
+                className="inline-flex min-w-4 items-center justify-center text-[11px]"
+              >
                 {option.leading}
               </span>
             )}

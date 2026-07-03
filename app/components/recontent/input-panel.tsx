@@ -16,7 +16,7 @@ type InputPanelProps = {
   inputMode: InputMode;
   sourceText: string;
   sourceUrl: string;
-  selectedPlatforms: PlatformKey[];
+  selectedPlatform: PlatformKey;
   tone: ToneKey;
   customInstruction: string;
   isPending: boolean;
@@ -25,8 +25,7 @@ type InputPanelProps = {
   onInputModeChange: (mode: InputMode) => void;
   onSourceTextChange: (value: string) => void;
   onSourceUrlChange: (value: string) => void;
-  onTogglePlatform: (platform: PlatformKey) => void;
-  onSelectAllPlatforms: () => void;
+  onPlatformChange: (platform: PlatformKey) => void;
   onToneChange: (tone: ToneKey) => void;
   onCustomInstructionChange: (value: string) => void;
   onSubmit: () => void;
@@ -41,7 +40,7 @@ export function InputPanel({
   inputMode,
   sourceText,
   sourceUrl,
-  selectedPlatforms,
+  selectedPlatform,
   tone,
   customInstruction,
   isPending,
@@ -50,8 +49,7 @@ export function InputPanel({
   onInputModeChange,
   onSourceTextChange,
   onSourceUrlChange,
-  onTogglePlatform,
-  onSelectAllPlatforms,
+  onPlatformChange,
   onToneChange,
   onCustomInstructionChange,
   onSubmit
@@ -62,7 +60,7 @@ export function InputPanel({
         <div>
           <h2 className="text-sm font-medium text-slate-900">输入内容</h2>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            先放入原始内容，再决定要送去哪些平台，以及成稿的表达语气。
+            先放入原始内容，再决定这一轮要生成哪个平台，以及成稿的表达语气。
           </p>
         </div>
         <SegmentedControl
@@ -92,20 +90,13 @@ export function InputPanel({
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <section className="rounded-[22px] border border-slate-200/80 bg-white/55 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-          <div className="flex items-center justify-between gap-2">
+          <div>
             <div>
               <h3 className="text-xs font-medium text-slate-900">目标平台</h3>
               <p className="mt-1 text-[11px] text-slate-500">
-                最多同时生成 3 个平台版本。
+                每次只生成 1 个平台版本，优先保证解析稳定和成稿质量。
               </p>
             </div>
-            <button
-              type="button"
-              className="text-[11px] font-medium text-slate-500 transition hover:text-slate-700"
-              onClick={onSelectAllPlatforms}
-            >
-              全选
-            </button>
           </div>
           <div className="mt-3">
             <FilterChipGroup
@@ -114,8 +105,8 @@ export function InputPanel({
                 label: option.label,
                 leading: option.shortLabel
               }))}
-              selectedKeys={selectedPlatforms}
-              onToggle={onTogglePlatform}
+              selectedKeys={[selectedPlatform]}
+              onToggle={onPlatformChange}
             />
           </div>
         </section>
@@ -169,12 +160,12 @@ export function InputPanel({
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] leading-5 text-slate-500">
-            每次最多生成 3 个平台版本，内容长度建议控制在 4,000 字以内。
+            每次只生成当前选中的平台版本，内容长度建议控制在 4,000 字以内。
           </p>
           <button
             type="button"
             onClick={onSubmit}
-            disabled={!hasContent || selectedPlatforms.length === 0 || isPending}
+            disabled={!hasContent || isPending}
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-xs font-medium text-white shadow-[0_12px_30px_rgba(14,165,233,0.22)] transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isPending ? (

@@ -10,7 +10,7 @@ import {
   sendDraftToXiaohongshuBridge
 } from "./lib/xiaohongshu-draft-bridge";
 import {
-  DEFAULT_SELECTED_PLATFORMS,
+  DEFAULT_SELECTED_PLATFORM,
   type InputMode,
   type PlatformKey,
   type RepurposeResult,
@@ -41,8 +41,8 @@ export default function HomePage() {
   const [sourceText, setSourceText] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [customInstruction, setCustomInstruction] = useState("");
-  const [selectedPlatforms, setSelectedPlatforms] =
-    useState<PlatformKey[]>(DEFAULT_SELECTED_PLATFORMS);
+  const [selectedPlatform, setSelectedPlatform] =
+    useState<PlatformKey>(DEFAULT_SELECTED_PLATFORM);
   const [tone, setTone] = useState<ToneKey>("neutral");
   const [results, setResults] = useState<RepurposeResult[]>([]);
   const [activePlatform, setActivePlatform] = useState<PlatformKey | null>(null);
@@ -63,16 +63,8 @@ export default function HomePage() {
     (inputMode === "text" && sourceText.trim().length > 0) ||
     (inputMode === "url" && sourceUrl.trim().length > 0);
 
-  const togglePlatform = (platform: PlatformKey) => {
-    setSelectedPlatforms(prev =>
-      prev.includes(platform)
-        ? prev.filter(p => p !== platform)
-        : [...prev, platform]
-    );
-  };
-
   const handleRepurpose = () => {
-    if (!hasContent || selectedPlatforms.length === 0) return;
+    if (!hasContent) return;
 
     setError(null);
     setExtractionErrorDialog(null);
@@ -86,7 +78,7 @@ export default function HomePage() {
             mode: inputMode,
             text: inputMode === "text" ? sourceText : undefined,
             url: inputMode === "url" ? sourceUrl : undefined,
-            platforms: selectedPlatforms,
+            platforms: [selectedPlatform],
             tone,
             customInstruction
           })
@@ -201,7 +193,7 @@ export default function HomePage() {
             inputMode={inputMode}
             sourceText={sourceText}
             sourceUrl={sourceUrl}
-            selectedPlatforms={selectedPlatforms}
+            selectedPlatform={selectedPlatform}
             tone={tone}
             customInstruction={customInstruction}
             isPending={isPending}
@@ -210,10 +202,7 @@ export default function HomePage() {
             onInputModeChange={setInputMode}
             onSourceTextChange={setSourceText}
             onSourceUrlChange={setSourceUrl}
-            onTogglePlatform={togglePlatform}
-            onSelectAllPlatforms={() =>
-              setSelectedPlatforms(DEFAULT_SELECTED_PLATFORMS)
-            }
+            onPlatformChange={setSelectedPlatform}
             onToneChange={setTone}
             onCustomInstructionChange={setCustomInstruction}
             onSubmit={handleRepurpose}

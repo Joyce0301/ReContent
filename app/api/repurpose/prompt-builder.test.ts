@@ -7,12 +7,14 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Source content",
       tone: "neutral",
+      platform: "twitter",
       customInstruction: "更像创始人发言",
       mode: "normal"
     });
 
     expect(prompt).toContain("附加个性化要求：更像创始人发言");
     expect(prompt).toContain("Twitter / X 推文串");
+    expect(prompt).not.toContain("LinkedIn 帖子：1 篇 800-1500 字左右的长帖");
     expect(prompt).toContain("个性化要求只允许影响文风、口吻和表达重心");
   });
 
@@ -20,6 +22,7 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Source content",
       tone: "neutral",
+      platform: "linkedin",
       customInstruction: "风格偏创始人口吻，表达克制",
       mode: "conservative"
     });
@@ -32,6 +35,7 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Original source content",
       tone: "neutral",
+      platform: "twitter",
       customInstruction: "更像创始人发言"
     });
 
@@ -44,6 +48,7 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Original source content",
       tone: "formal",
+      platform: "linkedin",
       customInstruction: ""
     });
 
@@ -54,10 +59,24 @@ describe("buildRepurposeUserPrompt", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Original source content",
       tone: "casual",
+      platform: "xiaohongshu",
       customInstruction: "  更有故事感  "
     });
 
     expect(prompt).toContain("附加个性化要求：更有故事感");
     expect(prompt).not.toContain("附加个性化要求：  更有故事感  ");
+  });
+
+  it("uses a single-platform JSON example for the requested platform", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Original source content",
+      tone: "neutral",
+      platform: "xiaohongshu"
+    });
+
+    expect(prompt).toContain('"platform": "xiaohongshu"');
+    expect(prompt).toContain('"title": "小红书标题"');
+    expect(prompt).not.toContain('"platform": "twitter"');
+    expect(prompt).not.toContain('"platform": "linkedin"');
   });
 });

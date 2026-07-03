@@ -41,21 +41,25 @@ export function ResultSurface({
           </h2>
           <p className="mt-1 max-w-xl text-xs leading-6 text-slate-500">
             {results.length > 0
-              ? `当前展开 ${PLATFORM_LABELS[activeResult?.platform ?? results[0].platform]} 版本，其余平台可随时切换查看。`
-              : "生成完成后，这里会优先展开一份更适合阅读、检查与复制的成稿。"}
+              ? `当前展示 ${PLATFORM_LABELS[activeResult?.platform ?? results[0].platform]} 版本，可直接阅读、检查并复制。`
+              : "生成完成后，这里会展开当前所选平台的一份成稿。"}
           </p>
         </div>
 
         {results.length > 0 ? (
           <div className="flex flex-col items-start gap-2 sm:items-end">
             <span className="text-[11px] text-slate-500">
-              已生成 {results.length} 个平台版本
+              {results.length === 1
+                ? "已生成当前平台版本"
+                : `已生成 ${results.length} 个平台版本`}
             </span>
-            <ResultPlatformTabs
-              results={results}
-              activePlatform={activeResult?.platform ?? results[0].platform}
-              onChange={onActivePlatformChange}
-            />
+            {results.length > 1 ? (
+              <ResultPlatformTabs
+                results={results}
+                activePlatform={activeResult?.platform ?? results[0].platform}
+                onChange={onActivePlatformChange}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -82,7 +86,7 @@ export function ResultSurface({
                   成稿会在这里安静地展开。
                 </h3>
                 <p className="mt-4 max-w-md text-sm leading-7 text-slate-500">
-                  提交原始内容后，右侧会切换到主阅读视图，先把一份成稿放到眼前，再保留其他平台版本的快速切换。
+                  提交原始内容后，右侧会切换到主阅读视图，直接展示当前平台的一份成稿，方便你逐条检查与复制。
                 </p>
               </div>
 
@@ -100,7 +104,7 @@ export function ResultSurface({
                     Focus
                   </p>
                   <p className="mt-2 text-sm leading-6 text-slate-500">
-                    多平台同时生成，但只保留一个当前视觉主角。
+                    每次聚焦一个平台，减少解析波动，也更方便逐条检查质量。
                   </p>
                 </div>
                 <div className="border-t border-slate-200/90 pt-4">
