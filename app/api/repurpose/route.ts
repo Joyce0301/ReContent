@@ -34,6 +34,11 @@ type ParsedRepurposeResponse = {
     content: string;
   }>;
 };
+type NormalizedRepurposeResult = ParsedRepurposeResponse["results"][number];
+type AliasResolution<T> =
+  | { status: "missing" }
+  | { status: "invalid" }
+  | { status: "valid"; value: T };
 
 type RepurposeRunTrace = {
   mode: RequestBody["mode"];
@@ -104,23 +109,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
   }
 
-  if (!body.platforms || body.platforms.length === 0) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+  }
+
+  const platformValidation = normalizeRequestedPlatforms(body.platforms);
+  if (platformValidation.error) {
+    return NextResponse.json({ error: platformValidation.error }, { status: 400 });
+  }
+  const requestedPlatforms = platformValidation.platforms;
+
+  if (requestedPlatforms.length === 0) {
     return NextResponse.json({ error: "至少选择一个目标平台" }, { status: 400 });
   }
 
+  if (!["neutral", "formal", "casual"].includes(body.tone)) {
+    return NextResponse.json({ error: "不支持的语气风格" }, { status: 400 });
+  }
+
   if (body.mode === "text") {
-    if (!body.text || body.text.trim().length === 0) {
+    if (typeof body.text !== "string" || body.text.trim().length === 0) {
       return NextResponse.json(
         { error: "请输入要重制的文本内容" },
         { status: 400 }
       );
     }
   } else if (body.mode === "url") {
-    if (!body.url || body.url.trim().length === 0) {
+    if (typeof body.url !== "string" || body.url.trim().length === 0) {
       return NextResponse.json({ error: "请输入 URL" }, { status: 400 });
     }
   } else {
     return NextResponse.json({ error: "不支持的输入模式" }, { status: 400 });
+  }
+
+  if (
+    body.customInstruction !== undefined &&
+    typeof body.customInstruction !== "string"
+  ) {
+    return NextResponse.json({ error: "个性化要求格式错误" }, { status: 400 });
   }
 
   const trimmedCustomInstruction = body.customInstruction?.trim() ?? "";
@@ -162,16 +188,16 @@ export async function POST(req: Request) {
     const provider = getAiProvider();
     const results =
       provider === "mock"
-        ? generateMockResults(sourceContent, body.platforms, body.tone)
+        ? generateMockResults(sourceContent, requestedPlatforms, body.tone)
         : await generateWithModel(
             provider,
             sourceContent,
-            body.platforms,
+            requestedPlatforms,
             body.tone,
             sanitizedInstruction.value,
             {
               mode: body.mode,
-              targetPlatforms: body.platforms,
+              targetPlatforms: requestedPlatforms,
               hasCustomInstruction: sanitizedInstruction.value.length > 0
             }
           );
@@ -445,7 +471,7 @@ async function generateAttempt(input: {
     };
   }
 
-  const parsedOutcome = parseRepurposePayload(rawOutput);
+  const parsedOutcome = parseRepurposePayload(rawOutput, input.platforms);
   if (!parsedOutcome.parsed) {
     return {
       rawOutput,
@@ -455,11 +481,13 @@ async function generateAttempt(input: {
     };
   }
 
-  const filtered = parsedOutcome.parsed.results.filter(result =>
-    input.platforms.includes(result.platform)
+  const filtered = selectRequestedPlatformResults(
+    parsedOutcome.parsed.results,
+    input.platforms
   );
   const hasContent =
-    filtered.length > 0 && filtered.every(result => result.content.trim().length > 0);
+    filtered.length === input.platforms.length &&
+    filtered.every(result => result.content.trim().length > 0);
 
   if (!hasContent) {
     return {
@@ -616,15 +644,41 @@ export function sanitizeCustomInstruction(input: string): {
   return { value: normalized };
 }
 
+function normalizeRequestedPlatforms(input: unknown): {
+  platforms: PlatformKey[];
+  error?: string;
+} {
+  if (!Array.isArray(input)) {
+    return { platforms: [], error: "至少选择一个目标平台" };
+  }
+
+  const platforms: PlatformKey[] = [];
+  for (const item of input) {
+    const platform = normalizeStrictPlatformKey(item);
+    if (!platform) {
+      return { platforms: [], error: "请选择有效的目标平台" };
+    }
+
+    if (!platforms.includes(platform)) {
+      platforms.push(platform);
+    }
+  }
+
+  return { platforms };
+}
+
 export function parseRepurposeResponse(raw: string): ParsedRepurposeResponse | null {
   return parseRepurposePayload(raw).parsed;
 }
 
-function parseRepurposePayload(raw: string): {
+function parseRepurposePayload(
+  raw: string,
+  requestedPlatforms?: PlatformKey[]
+): {
   parsed: ParsedRepurposeResponse | null;
   parsedValid?: boolean;
 } {
-  const directParsed = parseRepurposeJson(raw);
+  const directParsed = parseRepurposeJson(raw, requestedPlatforms);
   if (directParsed.parsed || directParsed.parsedValid === false) {
     return directParsed;
   }
@@ -634,7 +688,7 @@ function parseRepurposePayload(raw: string): {
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .trim();
-  const fencedParsed = parseRepurposeJson(fenced);
+  const fencedParsed = parseRepurposeJson(fenced, requestedPlatforms);
   if (fencedParsed.parsed || fencedParsed.parsedValid === false) {
     return fencedParsed;
   }
@@ -645,10 +699,13 @@ function parseRepurposePayload(raw: string): {
     return { parsed: null };
   }
 
-  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1));
+  return parseRepurposeJson(raw.slice(firstBrace, lastBrace + 1), requestedPlatforms);
 }
 
-function parseRepurposeJson(raw: string): {
+function parseRepurposeJson(
+  raw: string,
+  requestedPlatforms?: PlatformKey[]
+): {
   parsed: ParsedRepurposeResponse | null;
   parsedValid?: boolean;
 } {
@@ -658,35 +715,245 @@ function parseRepurposeJson(raw: string): {
       return { parsed: null, parsedValid: false };
     }
 
-    const hasInvalidResult = parsed.results.some(result => {
-      if (!result || typeof result !== "object") {
-        return true;
-      }
+    const normalizedResults = normalizeRepurposeResultsForRequest(
+      parsed.results,
+      requestedPlatforms
+    );
 
-      const platform = result.platform;
-      const title = result.title;
-      const content = result.content;
-      const trimmedTitle = typeof title === "string" ? title.trim() : undefined;
-      const trimmedContent = typeof content === "string" ? content.trim() : "";
+    if (normalizedResults.some(result => !result)) {
+      return { parsed: null, parsedValid: false };
+    }
 
-      return (
-        !["twitter", "linkedin", "xiaohongshu"].includes(platform) ||
-        typeof content !== "string" ||
-        trimmedContent.length === 0 ||
-        (title !== undefined && typeof title !== "string") ||
-        (platform === "xiaohongshu" &&
-          (trimmedTitle === undefined ||
-            trimmedTitle.length === 0 ||
-            countCodePoints(trimmedTitle) > MAX_XIAOHONGSHU_TITLE_LENGTH))
-      );
-    });
-
-    return hasInvalidResult
+    return normalizedResults.length === 0
       ? { parsed: null, parsedValid: false }
-      : { parsed, parsedValid: true };
+      : {
+          parsed: { results: normalizedResults as NormalizedRepurposeResult[] },
+          parsedValid: true
+        };
   } catch {
     return { parsed: null };
   }
+}
+
+function normalizeRepurposeResultsForRequest(
+  results: unknown[],
+  requestedPlatforms?: PlatformKey[]
+): Array<NormalizedRepurposeResult | null> {
+  if (!requestedPlatforms) {
+    return results.map(normalizeRepurposeResult);
+  }
+
+  return results.flatMap(result => {
+    const platformCandidate = getResultPlatformCandidate(result);
+    if (platformCandidate.status === "invalid") {
+      return [null];
+    }
+
+    if (
+      platformCandidate.status === "valid" &&
+      !requestedPlatforms.includes(platformCandidate.value)
+    ) {
+      return [];
+    }
+
+    const normalized = normalizeRepurposeResult(result);
+    if (!normalized) {
+      return [null];
+    }
+
+    return requestedPlatforms.includes(normalized.platform) ? [normalized] : [];
+  });
+}
+
+function getResultPlatformCandidate(result: unknown): AliasResolution<PlatformKey> {
+  if (!result || typeof result !== "object") {
+    return { status: "missing" };
+  }
+
+  const record = result as Record<string, unknown>;
+  return resolveConsistentAliasValue(
+    [record.platform, record["平台"]],
+    normalizePlatformKey
+  );
+}
+
+function normalizeRepurposeResult(result: unknown): NormalizedRepurposeResult | null {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const record = result as Record<string, unknown>;
+  const platform = singleConsistentValue(
+    [record.platform, record["平台"]],
+    normalizePlatformKey
+  );
+  const content = singleConsistentValue(
+    [record.content, record["内容"], record["正文"]],
+    normalizeString
+  );
+  const title = singleConsistentValue([record.title, record["标题"]], normalizeString);
+
+  if (!platform || !content) {
+    return null;
+  }
+
+  if (platform !== "xiaohongshu") {
+    return { platform, content };
+  }
+
+  if (!title) {
+    return null;
+  }
+
+  return {
+    platform,
+    title: truncateByCodePoints(title, MAX_XIAOHONGSHU_TITLE_LENGTH),
+    content
+  };
+}
+
+function normalizePlatformKey(input: unknown): PlatformKey | null {
+  if (typeof input !== "string") {
+    return null;
+  }
+
+  const normalized = input.trim().toLowerCase();
+  const compact = normalized.replace(/[\s/_-]+/g, "");
+  if (hasNegatedPlatformAlias(normalized) || hasUnsupportedPlatformAlias(normalized)) {
+    return null;
+  }
+
+  const matches = new Set<PlatformKey>();
+  if (
+    ["twitter", "x", "twitterx", "推特", "推文", "推文串"].includes(compact) ||
+    /\btwitter\b/.test(normalized) ||
+    /\bx\b/.test(normalized) ||
+    normalized.includes("推特")
+  ) {
+    matches.add("twitter");
+  }
+
+  if (
+    ["linkedin", "领英"].includes(compact) ||
+    /\blinkedin\b/.test(normalized) ||
+    normalized.includes("领英")
+  ) {
+    matches.add("linkedin");
+  }
+
+  if (
+    ["xiaohongshu", "小红书", "rednote", "redbook"].includes(compact) ||
+    normalized.includes("小红书") ||
+    /\bxiaohongshu\b/.test(normalized) ||
+    /\brednote\b/.test(normalized) ||
+    /\bredbook\b/.test(normalized)
+  ) {
+    matches.add("xiaohongshu");
+  }
+
+  return matches.size === 1 ? [...matches][0] : null;
+}
+
+function hasUnsupportedPlatformAlias(normalized: string): boolean {
+  if (!/(?:\/|\+|,|，|、|&|\band\b|\bplus\b)/.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /\b(?:instagram|insta|ig|facebook|fb|tiktok|youtube|yt|threads|wechat|weibo|bilibili|douyin|kuaishou)\b/.test(
+      normalized
+    ) || /(?:微信|微博|抖音|快手|哔哩哔哩|小破站|公众号)/.test(normalized)
+  );
+}
+
+function hasNegatedPlatformAlias(normalized: string): boolean {
+  const englishPlatforms = "(?:twitter|x|linkedin|rednote|redbook|xiaohongshu)";
+  const englishNegationPatterns = [
+    new RegExp(`\\b(?:not|no)\\b[\\s/_-]+(?:for[\\s/_-]+|use[\\s/_-]+)?${englishPlatforms}\\b`),
+    new RegExp(`\\bdo[\\s/_-]+not\\b[\\s/_-]+(?:use[\\s/_-]+)?${englishPlatforms}\\b`),
+    new RegExp(`\\bnon[\\s/_-]*${englishPlatforms}\\b`),
+    new RegExp(`\\bwithout\\b[\\s/_-]+${englishPlatforms}\\b`)
+  ];
+
+  if (englishNegationPatterns.some(pattern => pattern.test(normalized))) {
+    return true;
+  }
+
+  return (
+    /(?:不(?:是|要)?|非|勿|别)\s*(?:推特|推文|领英|小红书)/.test(normalized) ||
+    new RegExp(`(?:不(?:是|要)?|非|勿|别)\\s*${englishPlatforms}\\b`).test(normalized)
+  );
+}
+
+function normalizeStrictPlatformKey(input: unknown): PlatformKey | null {
+  if (input === "twitter" || input === "linkedin" || input === "xiaohongshu") {
+    return input;
+  }
+
+  return null;
+}
+
+function normalizeString(input: unknown): string | null {
+  if (typeof input !== "string") {
+    return null;
+  }
+
+  const normalized = input.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function singleConsistentValue<T>(
+  candidates: unknown[],
+  normalize: (input: unknown) => T | null
+): T | null {
+  const resolution = resolveConsistentAliasValue(candidates, normalize);
+  return resolution.status === "valid" ? resolution.value : null;
+}
+
+function resolveConsistentAliasValue<T>(
+  candidates: unknown[],
+  normalize: (input: unknown) => T | null
+): AliasResolution<T> {
+  const values: T[] = [];
+  for (const candidate of candidates) {
+    if (isPresentAliasValue(candidate) && !normalize(candidate)) {
+      return { status: "invalid" };
+    }
+
+    const normalized = normalize(candidate);
+    if (normalized) {
+      values.push(normalized);
+    }
+  }
+
+  if (values.length === 0) {
+    return { status: "missing" };
+  }
+
+  return values.every(value => value === values[0])
+    ? { status: "valid", value: values[0] }
+    : { status: "invalid" };
+}
+
+function isPresentAliasValue(input: unknown) {
+  return !(input === undefined || input === null || (typeof input === "string" && input.trim() === ""));
+}
+
+function selectRequestedPlatformResults(
+  results: NormalizedRepurposeResult[],
+  platforms: PlatformKey[]
+): NormalizedRepurposeResult[] {
+  const byPlatform = new Map<PlatformKey, NormalizedRepurposeResult>();
+
+  for (const result of results) {
+    if (!byPlatform.has(result.platform)) {
+      byPlatform.set(result.platform, result);
+    }
+  }
+
+  return platforms
+    .map(platform => byPlatform.get(platform))
+    .filter((result): result is NormalizedRepurposeResult => Boolean(result));
 }
 
 function generateMockResults(
@@ -750,6 +1017,13 @@ ${baseIntro}
 
 function countCodePoints(input: string) {
   return Array.from(input).length;
+}
+
+function truncateByCodePoints(input: string, maxCodePoints: number) {
+  const codePoints = Array.from(input);
+  return codePoints.length <= maxCodePoints
+    ? input
+    : codePoints.slice(0, maxCodePoints).join("").trim();
 }
 
 function createRunTrace(
