@@ -7,7 +7,7 @@ type ExtractionOptions = {
   timeoutMs?: number;
 };
 
-export type ExtractionSource = "site_specific" | "jina_reader" | "html";
+export type ExtractionSource = "site_specific" | "firecrawl" | "jina_reader" | "html";
 export type ExtractionOutcome = "success" | "failed" | "skipped";
 export type ExtractionFailureReason =
   | "invalid_url"
@@ -49,7 +49,6 @@ const MIN_EXTRACTED_LENGTH = 200;
 const MAX_EXTRACTED_LENGTH = 20000;
 const DEFAULT_FETCH_TIMEOUT_MS = 6000;
 const CONSERVATIVE_RETRY_TIMEOUT_MULTIPLIER = 2;
-
 export async function extractContentFromUrl(
   url: string,
   options: ExtractionOptions = {}
@@ -100,6 +99,54 @@ export async function extractContentFromUrlWithDiagnostics(
     return { content, diagnostics };
   }
 
+  const firecrawlPromise = fetchWithFirecrawl(normalizedUrl, fetcher, timeoutMs);
+  const fallbackPromise = extractWithJinaAndHtml(normalizedUrl, fetcher, timeoutMs);
+  const firstCompleted = await Promise.race([
+    firecrawlPromise.then(result => ({ source: "firecrawl" as const, result })),
+    fallbackPromise.then(result => ({ source: "fallback" as const, result }))
+  ]);
+
+  if (firstCompleted.source === "firecrawl") {
+    diagnostics.attempts.push(firstCompleted.result.attempt);
+    if (isUsefulText(firstCompleted.result.text) || isMeaningfulText(firstCompleted.result.text)) {
+      const content = cleanExtractedText(firstCompleted.result.text).slice(0, MAX_EXTRACTED_LENGTH);
+      diagnostics.finalOutcome = "success";
+      diagnostics.finalSource = "firecrawl";
+      return { content, diagnostics };
+    }
+
+    const fallbackResult = await fallbackPromise;
+    return mergeExtractionResult(diagnostics, fallbackResult);
+  }
+
+  const fallbackResult = firstCompleted.result;
+  if (fallbackResult.content) {
+    return mergeExtractionResult(diagnostics, fallbackResult);
+  }
+
+  const firecrawlResult = await firecrawlPromise;
+  diagnostics.attempts.push(firecrawlResult.attempt);
+  if (isUsefulText(firecrawlResult.text) || isMeaningfulText(firecrawlResult.text)) {
+    const content = cleanExtractedText(firecrawlResult.text).slice(0, MAX_EXTRACTED_LENGTH);
+    diagnostics.finalOutcome = "success";
+    diagnostics.finalSource = "firecrawl";
+    return { content, diagnostics };
+  }
+
+  return mergeExtractionResult(diagnostics, fallbackResult);
+}
+
+async function extractWithJinaAndHtml(
+  normalizedUrl: string,
+  fetcher: Fetcher,
+  timeoutMs: number
+): Promise<ExtractionResult> {
+  const diagnostics: ExtractionDiagnostics = {
+    url: normalizedUrl,
+    normalizedUrl,
+    finalOutcome: "failure",
+    attempts: []
+  };
   const parsedUrl = new URL(normalizedUrl);
   const jinaPromise = fetchWithJinaReader(normalizedUrl, fetcher, timeoutMs);
   const htmlPromise = fetchAndExtractHtml(normalizedUrl, fetcher, timeoutMs);
@@ -260,6 +307,19 @@ export async function extractContentFromUrlWithDiagnostics(
   return { content: null, diagnostics };
 }
 
+function mergeExtractionResult(
+  diagnostics: ExtractionDiagnostics,
+  result: ExtractionResult
+): ExtractionResult {
+  diagnostics.attempts.push(...result.diagnostics.attempts);
+  diagnostics.finalOutcome = result.diagnostics.finalOutcome;
+  diagnostics.finalSource = result.diagnostics.finalSource;
+  return {
+    content: result.content,
+    diagnostics
+  };
+}
+
 async function retryJinaExtractionIfTransientFailure(
   url: string,
   diagnostics: ExtractionDiagnostics,
@@ -363,6 +423,128 @@ function normalizeHttpUrl(url: string): string | null {
     return parsed.toString();
   } catch {
     return null;
+  }
+}
+
+function getFirecrawlConfig() {
+  const apiKey = process.env.FIRECRAWL_API_KEY?.trim();
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const baseUrl = process.env.FIRECRAWL_API_URL?.trim() || "https://api.firecrawl.dev";
+    return {
+      apiKey,
+      scrapeUrl: new URL("/v2/scrape", baseUrl).toString()
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWithFirecrawl(
+  url: string,
+  fetcher: Fetcher,
+  timeoutMs: number
+): Promise<AttemptResult> {
+  const config = getFirecrawlConfig();
+  if (!config) {
+    return {
+      text: null,
+      attempt: {
+        source: "firecrawl",
+        outcome: "skipped"
+      }
+    };
+  }
+
+  try {
+    const firecrawlApiTimeoutMs = Math.max(1, timeoutMs - 250);
+    const res = await fetchWithTimeout(fetcher, config.scrapeUrl, timeoutMs, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["markdown"],
+        onlyMainContent: true,
+        timeout: firecrawlApiTimeoutMs
+      })
+    });
+
+    if (!res.ok) {
+      return {
+        text: null,
+        attempt: {
+          source: "firecrawl",
+          outcome: "failed",
+          failureReason: "http_error"
+        }
+      };
+    }
+
+    const payload = (await res.json()) as {
+      data?: {
+        markdown?: string;
+        metadata?: {
+          error?: string;
+          statusCode?: number;
+          title?: string;
+        };
+      };
+      markdown?: string;
+      metadata?: {
+        error?: string;
+        statusCode?: number;
+        title?: string;
+      };
+      success?: boolean;
+    };
+    const metadata = payload.data?.metadata ?? payload.metadata;
+    const targetRequestFailed =
+      payload.success === false ||
+      (typeof metadata?.statusCode === "number" && metadata.statusCode >= 400) ||
+      Boolean(metadata?.error);
+
+    const text = cleanExtractedText(
+      payload.data?.markdown ?? payload.markdown ?? null,
+      metadata?.title
+    );
+    const hasAccessChallenge = looksLikeAccessChallengeText(text, {
+      source: "firecrawl",
+      url
+    });
+
+    return {
+      text: !targetRequestFailed && !hasAccessChallenge ? text : null,
+      attempt: {
+        source: "firecrawl",
+        outcome:
+          !targetRequestFailed &&
+          !hasAccessChallenge &&
+          (isUsefulText(text) || isMeaningfulText(text))
+            ? "success"
+            : "failed",
+        failureReason:
+          !targetRequestFailed &&
+          !hasAccessChallenge &&
+          (isUsefulText(text) || isMeaningfulText(text))
+            ? undefined
+            : "no_content"
+      }
+    };
+  } catch (error) {
+    return {
+      text: null,
+      attempt: {
+        source: "firecrawl",
+        outcome: "failed",
+        failureReason: toFailureReason(error)
+      }
+    };
   }
 }
 
