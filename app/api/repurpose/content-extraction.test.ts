@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   extractContentFromUrl,
@@ -8,7 +8,234 @@ import {
 const makeResponse = (body: string, ok = true) =>
   new Response(body, { status: ok ? 200 : 500 });
 
+beforeEach(() => {
+  vi.stubEnv("FIRECRAWL_API_KEY", "");
+  vi.stubEnv("FIRECRAWL_API_URL", "");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("extractContentFromUrl", () => {
+  it("prefers Firecrawl markdown when configured and available", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    const firecrawlMarkdown =
+      "# GPT-OSS-120B\n\n" +
+      "Open-weight reasoning models should be easy to inspect and adapt. ".repeat(20);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl === "https://api.firecrawl.dev/v2/scrape") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                markdown: firecrawlMarkdown
+              }
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            }
+          )
+        );
+      }
+
+      return Promise.resolve(makeResponse("should not be used"));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://openai.com/index/introducing-gpt-oss/",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("GPT-OSS-120B");
+    expect(result.diagnostics.finalSource).toBe("firecrawl");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.firecrawl.dev/v2/scrape",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer fc-test-key",
+          "Content-Type": "application/json"
+        })
+      })
+    );
+  });
+
+  it("falls back to existing extractors when Firecrawl fails", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    const html = `
+      <html>
+        <head><title>Fallback Article - Site</title></head>
+        <body>
+          <article>
+            <h1>Fallback Article</h1>
+            <p>${"HTML fallback still works when Firecrawl is unavailable. ".repeat(20)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl === "https://api.firecrawl.dev/v2/scrape") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ success: false, error: "upstream failed" }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      }
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse("Too short"));
+      }
+
+      return Promise.resolve(makeResponse(html));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://example.com/post",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("Fallback Article");
+    expect(result.diagnostics.finalSource).toBe("html");
+    expect(result.diagnostics.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "firecrawl",
+          outcome: "failed",
+          failureReason: "http_error"
+        })
+      ])
+    );
+  });
+
+  it("falls back when FIRECRAWL_API_URL is invalid", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+    vi.stubEnv("FIRECRAWL_API_URL", "localhost:3002");
+
+    const html = `
+      <html>
+        <head><title>Fallback Article - Site</title></head>
+        <body>
+          <article>
+            <h1>Fallback Article</h1>
+            <p>${"HTML fallback still works when Firecrawl config is invalid. ".repeat(20)}</p>
+          </article>
+        </body>
+      </html>
+    `;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse("Too short"));
+      }
+
+      return Promise.resolve(makeResponse(html));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://example.com/post",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("Fallback Article");
+    expect(result.diagnostics.finalSource).toBe("html");
+    expect(result.diagnostics.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "firecrawl",
+          outcome: "skipped"
+        })
+      ])
+    );
+  });
+
+  it("rejects Firecrawl responses marked as unsuccessful and falls back", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "fc-test-key");
+
+    const html = `
+      <html>
+        <head><title>Fallback Article - Site</title></head>
+        <body>
+          <article>
+            <h1>Fallback Article</h1>
+            <p>${"HTML fallback still works when Firecrawl returns an unsuccessful scrape payload. ".repeat(
+              20
+            )}</p>
+          </article>
+        </body>
+      </html>
+    `;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl = String(input);
+
+      if (requestUrl === "https://api.firecrawl.dev/v2/scrape") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: false,
+              data: {
+                markdown:
+                  "# Access denied\n\n" +
+                  "This page is blocked and should not be accepted as article content. ".repeat(
+                    20
+                  )
+              }
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            }
+          )
+        );
+      }
+
+      if (requestUrl.startsWith("https://r.jina.ai/")) {
+        return Promise.resolve(makeResponse("Too short"));
+      }
+
+      return Promise.resolve(makeResponse(html));
+    });
+
+    const result = await extractContentFromUrlWithDiagnostics(
+      "https://example.com/post",
+      {
+        fetcher: fetchMock,
+        timeoutMs: 20
+      }
+    );
+
+    expect(result.content).toContain("Fallback Article");
+    expect(result.diagnostics.finalSource).toBe("html");
+    expect(result.diagnostics.attempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "firecrawl",
+          outcome: "failed",
+          failureReason: "no_content"
+        })
+      ])
+    );
+  });
+
   it("falls back to direct HTML extraction when Jina times out", async () => {
     const html = `
       <html>
