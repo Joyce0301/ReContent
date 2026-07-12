@@ -184,12 +184,16 @@ npm install
 ```bash
 OPENAI_API_KEY=sk-xxxxx
 KIMI_API_KEY=your-kimi-key
+FIRECRAWL_API_KEY=fc-xxxxx
+# 可选，自建 Firecrawl 时再配置
+# FIRECRAWL_API_URL=http://localhost:3002
 OPENAI_MODEL=gpt-4.1-mini
 KIMI_MODEL=moonshot-v1-32k
 ```
 
 说明：
 
+- 配置 `FIRECRAWL_API_KEY` 后，URL 抽取会优先尝试 Firecrawl 的 `/v2/scrape`
 - 配置 `KIMI_API_KEY` 时，后端会优先使用 Kimi
 - 否则如果配置了 `OPENAI_API_KEY`，会走 OpenAI
 - 两者都不配时，会使用内置 `mock` 返回示例内容，方便本地联调 UI

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { extractContentFromUrl } from "./content-extraction";
+import { extractContentFromUrlWithDiagnostics } from "./content-extraction";
 
 type LiveCorpusEntry = {
   expectedSnippets: string[];
@@ -12,6 +12,7 @@ type LiveCorpusEntry = {
 
 const LIVE_CORPUS_ENV = process.env.URL_EXTRACTION_LIVE_CORPUS;
 const LIVE_CORPUS_FILE = process.env.URL_EXTRACTION_LIVE_CORPUS_FILE;
+const EXPECTED_SOURCE = process.env.URL_EXTRACTION_EXPECT_SOURCE;
 
 function parseLiveCorpus(): LiveCorpusEntry[] {
   if (LIVE_CORPUS_FILE) {
@@ -49,18 +50,21 @@ describe("content extraction live corpus", () => {
 
       const results = await Promise.all(
         LIVE_CORPUS.map(async entry => {
-          const content = await extractContentFromUrl(entry.url, {
+          const result = await extractContentFromUrlWithDiagnostics(entry.url, {
             timeoutMs: 8000
           });
+          const content = result.content;
 
-          const passed = entry.expectedSnippets.every(snippet =>
-            content?.includes(snippet)
-          );
+          const snippetMatch = entry.expectedSnippets.every(snippet => content?.includes(snippet));
+          const sourceMatch = EXPECTED_SOURCE
+            ? result.diagnostics.finalSource === EXPECTED_SOURCE
+            : true;
 
           return {
             contentLength: content?.length ?? 0,
+            finalSource: result.diagnostics.finalSource,
             name: entry.name,
-            passed,
+            passed: snippetMatch && sourceMatch,
             url: entry.url
           };
         })
