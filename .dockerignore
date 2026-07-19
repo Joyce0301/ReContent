@@ -1,0 +1,16 @@
+node_modules
+.next
+!.next/standalone
+!.next/standalone/**
+!.next/static
+!.next/static/**
+.git
+.gitignore
+README.md
+npm-debug.log
+.env
+.env.local
+.env.*.local
+coverage
+tmp
+.superpowers
