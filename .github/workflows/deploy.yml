@@ -66,17 +66,31 @@ jobs:
       - name: Get current ECS task definition
         id: task-def
         run: |
-          echo "task-definition=$(aws ecs describe-services \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE \
+          set -euo pipefail
+
+          TASK_DEFINITION=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
             --query 'services[0].taskDefinition' \
-            --output text)" >> "$GITHUB_OUTPUT"
+            --output text)
+
+          echo "Resolved task definition: $TASK_DEFINITION"
+
+          if [ -z "$TASK_DEFINITION" ] || [ "$TASK_DEFINITION" = "None" ]; then
+            echo "Failed to resolve ECS task definition for service $ECS_SERVICE in cluster $ECS_CLUSTER"
+            aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE"
+            exit 1
+          fi
+
+          echo "task-definition=$TASK_DEFINITION" >> "$GITHUB_OUTPUT"
 
       - name: Render Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition-arn: ${{ steps.task-def.outputs.task-definition }}
+          task-definition-arn: arn:aws:ecs:us-east-1:881424867096:task-definition/default-recontent-b13f:1
           container-name: ${{ env.ECS_CONTAINER_NAME }}
           image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           environment-variables: |
