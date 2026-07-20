@@ -71,7 +71,7 @@ jobs:
           TASK_DEFINITION=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE" \
-            --query 'services[0].taskDefinition' \
+            --query "services[0].deployments[?status=='PRIMARY'] | [0].taskDefinition" \
             --output text)
 
           echo "Resolved task definition: $TASK_DEFINITION"
@@ -90,7 +90,7 @@ jobs:
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition-arn: arn:aws:ecs:us-east-1:881424867096:task-definition/default-recontent-b13f:1
+          task-definition-arn: ${{ steps.task-def.outputs.task-definition }}
           container-name: ${{ env.ECS_CONTAINER_NAME }}
           image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           environment-variables: |
