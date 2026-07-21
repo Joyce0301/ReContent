@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -20,7 +22,6 @@ jobs:
       ECS_CLUSTER: default
       ECS_SERVICE: recontent-b13f
       ECS_CONTAINER_NAME: Main
-      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout repository
@@ -48,20 +49,52 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Resolve image tags
+        id: image-meta
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="sha-${GITHUB_SHA::8}"
+          RELEASE_TAG=""
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+
+          echo "short-sha-tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "release-tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker image
-        run: docker build --platform linux/amd64 -t $ECR_REPOSITORY:$IMAGE_TAG .
+        run: |
+          docker build --platform linux/amd64 \
+            -t $ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }} .
 
       - name: Tag Docker image
         run: |
-          docker tag $ECR_REPOSITORY:$IMAGE_TAG \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
-          docker tag $ECR_REPOSITORY:$IMAGE_TAG \
-            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          docker tag $ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }} \
+            ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }}
+
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            docker tag $ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }} \
+              ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          fi
+
+          if [ -n "${{ steps.image-meta.outputs.release-tag }}" ]; then
+            docker tag $ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }} \
+              ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ steps.image-meta.outputs.release-tag }}
+          fi
 
       - name: Push Docker image
         run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ steps.image-meta.outputs.short-sha-tag }}
+
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          fi
+
+          if [ -n "${{ steps.image-meta.outputs.release-tag }}" ]; then
+            docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ steps.image-meta.outputs.release-tag }}
+          fi
 
       - name: Get current ECS task definition
         id: task-def
@@ -92,7 +125,7 @@ jobs:
         with:
           task-definition-arn: ${{ steps.task-def.outputs.task-definition }}
           container-name: ${{ env.ECS_CONTAINER_NAME }}
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image-meta.outputs.short-sha-tag }}
           environment-variables: |
             PORT=80
 
