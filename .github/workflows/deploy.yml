@@ -119,6 +119,27 @@ jobs:
 
           echo "task-definition=$TASK_DEFINITION" >> "$GITHUB_OUTPUT"
 
+      - name: Validate auth secrets in ECS task definition
+        run: |
+          set -euo pipefail
+
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
+            --task-definition "${{ steps.task-def.outputs.task-definition }}")
+
+          for REQUIRED_SECRET in DATABASE_URL AUTH_SESSION_SECRET; do
+            if ! echo "$TASK_DEF_JSON" | jq -e \
+              --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" \
+              --arg REQUIRED_SECRET "$REQUIRED_SECRET" \
+              '.taskDefinition.containerDefinitions
+                | map(select(.name == $CONTAINER_NAME))
+                | .[0].secrets // []
+                | map(.name)
+                | index($REQUIRED_SECRET)' > /dev/null; then
+              echo "Missing required auth secret: $REQUIRED_SECRET"
+              exit 1
+            fi
+          done
+
       - name: Render Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1

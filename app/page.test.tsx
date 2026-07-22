@@ -16,9 +16,22 @@ vi.mock("./lib/xiaohongshu-draft-bridge", () => ({
   sendDraftToXiaohongshuBridge: sendDraftToXiaohongshuBridgeMock
 }));
 
-import HomePage from "./page";
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    refresh: vi.fn()
+  })
+}));
+
+import HomePage from "./workspace/workspace-client";
 
 describe("HomePage personalized prompt request", () => {
+  const user = {
+    id: "user-1",
+    email: "joyce@example.com",
+    displayName: "Joyce"
+  };
+
   afterEach(() => {
     cleanup();
     buildXiaohongshuDraftPayloadMock.mockReset();
@@ -27,7 +40,7 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("renders the personalized prompt field and helper text", () => {
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     expect(screen.getByText("个性化要求")).toBeTruthy();
     expect(
@@ -47,7 +60,7 @@ describe("HomePage personalized prompt request", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "A valid source article" }
@@ -70,7 +83,7 @@ describe("HomePage personalized prompt request", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "A valid source article" }
@@ -94,7 +107,7 @@ describe("HomePage personalized prompt request", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -126,7 +139,7 @@ describe("HomePage personalized prompt request", () => {
       message: "未检测到小红书草稿浏览器扩展，请先安装后再发送。"
     });
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -175,7 +188,7 @@ describe("HomePage personalized prompt request", () => {
       message: "请先登录小红书，登录完成后重新发送。"
     });
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -210,7 +223,7 @@ describe("HomePage personalized prompt request", () => {
       message: "小红书页面结构已变化，当前无法自动填充。"
     });
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -252,7 +265,7 @@ describe("HomePage personalized prompt request", () => {
         })
     );
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -296,7 +309,7 @@ describe("HomePage personalized prompt request", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }
@@ -328,7 +341,7 @@ describe("HomePage personalized prompt request", () => {
       () => new Promise(() => undefined)
     );
 
-    render(<HomePage />);
+    render(<HomePage user={user} />);
 
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "source article" }

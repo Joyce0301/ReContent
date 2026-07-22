@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 type RouteModule = typeof import("./route");
+const { getAuthSessionMock } = vi.hoisted(() => ({
+  getAuthSessionMock: vi.fn()
+}));
+
+vi.mock("../../lib/auth/session", () => ({
+  getAuthSession: getAuthSessionMock
+}));
 
 afterEach(() => {
   vi.resetModules();
@@ -8,6 +15,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock("./kimi-client");
   vi.doUnmock("./content-extraction");
+  getAuthSessionMock.mockResolvedValue({
+    user: {
+      id: "user-1",
+      email: "joyce@example.com",
+      displayName: "Joyce"
+    },
+    expiresAt: "2099-01-01T00:00:00.000Z"
+  });
 });
 
 async function loadRouteModule(): Promise<RouteModule> {
@@ -45,6 +60,51 @@ async function loadRouteModuleWithExtractionMock(
 }
 
 describe("POST /api/repurpose", () => {
+  it("returns 401 when the requester is not authenticated", async () => {
+    getAuthSessionMock.mockResolvedValueOnce(null);
+
+    const { POST } = await loadRouteModule();
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(data.error).toBe("请先登录后再开始重制内容");
+  });
+
+  it("returns 503 when auth storage is unavailable", async () => {
+    const { AuthStorageUnavailableError } = await import("../../lib/auth/errors");
+    getAuthSessionMock.mockRejectedValueOnce(new AuthStorageUnavailableError());
+
+    const { POST } = await loadRouteModule();
+    const req = new Request("http://localhost/api/repurpose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "text",
+        text: "Valid source text",
+        platforms: ["twitter"],
+        tone: "neutral"
+      })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(data.error).toBe("认证服务暂时不可用，请稍后再试");
+  });
+
   it("returns 400 when multiple platforms are requested in one call", async () => {
     const { POST } = await loadRouteModule();
     const req = new Request("http://localhost/api/repurpose", {

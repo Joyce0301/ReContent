@@ -5,6 +5,8 @@ import {
   type ExtractionDiagnostics,
   type ExtractionFailureReason
 } from "./content-extraction";
+import { getAuthSession } from "../../lib/auth/session";
+import { AuthConfigurationError, AuthStorageUnavailableError } from "../../lib/auth/errors";
 import { classifyFailure, compressCustomInstruction, decideRetryPlan } from "./failure-policy";
 import { createKimiClient } from "./kimi-client";
 import { buildRepurposeUserPrompt, type PromptMode } from "./prompt-builder";
@@ -96,6 +98,31 @@ const kimi = kimiApiKey
   : null;
 
 export async function POST(req: Request) {
+  let session;
+
+  try {
+    session = await getAuthSession();
+  } catch (error) {
+    if (
+      error instanceof AuthConfigurationError ||
+      error instanceof AuthStorageUnavailableError
+    ) {
+      return NextResponse.json(
+        { error: "认证服务暂时不可用，请稍后再试" },
+        { status: 503 }
+      );
+    }
+
+    throw error;
+  }
+
+  if (!session) {
+    return NextResponse.json(
+      { error: "请先登录后再开始重制内容" },
+      { status: 401 }
+    );
+  }
+
   let body: RequestBody;
 
   try {
