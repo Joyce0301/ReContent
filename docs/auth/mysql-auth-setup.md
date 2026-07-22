@@ -30,8 +30,16 @@ to your AWS MySQL database before enabling the auth routes.
 
 ## ECS / AWS notes
 
-- Put `DATABASE_URL` and `AUTH_SESSION_SECRET` in AWS Secrets Manager.
-- Inject them into the ECS task definition as environment secrets.
+- For ECS, you can choose either:
+  - a single `DATABASE_URL` secret plus `AUTH_SESSION_SECRET`
+  - or discrete `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`,
+    `MYSQL_DATABASE` settings plus `AUTH_SESSION_SECRET`
+- ECS environment validation in CI accepts either of those two setups.
+- If you use Amazon RDS managed master credentials, keep `MYSQL_HOST`,
+  `MYSQL_PORT`, and `MYSQL_DATABASE` as normal environment variables, then map
+  the RDS-managed secret JSON keys into ECS secrets for:
+  - `MYSQL_USER` -> `username`
+  - `MYSQL_PASSWORD` -> `password`
 - Ensure the ECS security group can reach the MySQL security group on `3306`.
 - Run the database in a private subnet when possible.
 - For Amazon RDS, TLS is enabled by default when the host ends with
