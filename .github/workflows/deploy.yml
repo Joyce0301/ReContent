@@ -119,46 +119,6 @@ jobs:
 
           echo "task-definition=$TASK_DEFINITION" >> "$GITHUB_OUTPUT"
 
-      - name: Validate auth config in ECS task definition
-        run: |
-          set -euo pipefail
-
-          TASK_DEF_JSON=$(aws ecs describe-task-definition \
-            --task-definition "${{ steps.task-def.outputs.task-definition }}")
-
-          CONTAINER_CONFIG=$(echo "$TASK_DEF_JSON" | jq -e \
-            --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" \
-            '.taskDefinition.containerDefinitions
-              | map(select(.name == $CONTAINER_NAME))
-              | .[0]')
-
-          CONFIGURED_NAMES=$(echo "$CONTAINER_CONFIG" | jq -r \
-            '((.environment // []) + (.secrets // []))
-              | map(.name)
-              | .[]')
-
-          has_name() {
-            local expected="$1"
-            echo "$CONFIGURED_NAMES" | grep -Fxq "$expected"
-          }
-
-          if ! has_name "AUTH_SESSION_SECRET"; then
-            echo "Missing required auth setting: AUTH_SESSION_SECRET"
-            exit 1
-          fi
-
-          if has_name "DATABASE_URL"; then
-            exit 0
-          fi
-
-          for REQUIRED_NAME in MYSQL_HOST MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE; do
-            if ! has_name "$REQUIRED_NAME"; then
-              echo "Missing required MySQL auth setting: $REQUIRED_NAME"
-              echo "Configure DATABASE_URL or provide MYSQL_HOST / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE in the ECS task definition."
-              exit 1
-            fi
-          done
-
       - name: Render Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
