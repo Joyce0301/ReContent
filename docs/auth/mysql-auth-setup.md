@@ -18,6 +18,9 @@ Or the discrete variables:
 - `MYSQL_PASSWORD`
 - `MYSQL_DATABASE`
 - `MYSQL_SSL_MODE` (`required` or `disabled`)
+- `MYSQL_SSL_CA_PATH` or `MYSQL_SSL_CA_PEM` when TLS verification is required
+- `MYSQL_SSL_ALLOW_SELF_SIGNED=true` only as an explicit temporary fallback when
+  you cannot yet provide a trusted CA bundle
 
 Also set:
 
@@ -45,6 +48,14 @@ to your AWS MySQL database before enabling the auth routes.
 - For Amazon RDS, TLS is enabled by default when the host ends with
   `.rds.amazonaws.com`. You can also set `sslMode=required` in `DATABASE_URL`,
   or set `MYSQL_SSL_MODE=required` explicitly.
+- Amazon RDS hosts use mysql2's built-in `Amazon RDS` SSL profile by default.
+- For non-RDS MySQL servers, provide a trusted CA bundle through one of:
+  - `MYSQL_SSL_CA_PATH=/path/to/server-ca.pem`
+  - `MYSQL_SSL_CA_PEM=<full PEM contents>`
+  - `NODE_EXTRA_CA_CERTS=/path/to/server-ca.pem`
+- If you need a short-lived escape hatch while fixing CA distribution, set
+  `MYSQL_SSL_ALLOW_SELF_SIGNED=true`. Keep this as temporary as possible because
+  it disables certificate verification.
 
 ## Runtime target
 
