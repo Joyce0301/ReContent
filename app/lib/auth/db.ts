@@ -1,13 +1,17 @@
+import { readFileSync } from "node:fs";
 import { createPool, type Pool, type RowDataPacket } from "mysql2/promise";
 import { AuthConfigurationError, AuthStorageUnavailableError } from "./errors";
 
 type MysqlSslMode = "disabled" | "required";
 
 type MysqlEnvConfig = {
+  allowSelfSignedTls: boolean;
   database: string;
   host: string;
   password: string;
   port: number;
+  sslCaPath?: string;
+  sslCaPem?: string;
   sslMode: MysqlSslMode;
   user: string;
 };
@@ -15,6 +19,18 @@ type MysqlEnvConfig = {
 type SqlValue = boolean | Date | null | number | string;
 
 let pool: Pool | null = null;
+
+function isAwsRdsHost(host: string) {
+  return host.endsWith(".rds.amazonaws.com");
+}
+
+function parseBooleanEnv(value?: string) {
+  if (!value) {
+    return false;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
 
 function parseDatabaseUrl(value: string): MysqlEnvConfig {
   const url = new URL(value);
@@ -24,14 +40,17 @@ function parseDatabaseUrl(value: string): MysqlEnvConfig {
   }
 
   const sslModeParam = url.searchParams.get("sslMode") ?? url.searchParams.get("ssl");
-  const requiresTlsByDefault = url.hostname.endsWith(".rds.amazonaws.com");
+  const requiresTlsByDefault = isAwsRdsHost(url.hostname);
 
   return {
+    allowSelfSignedTls: parseBooleanEnv(process.env.MYSQL_SSL_ALLOW_SELF_SIGNED),
     host: url.hostname,
     port: Number(url.port || "3306"),
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: url.pathname.replace(/^\//, ""),
+    sslCaPath: process.env.MYSQL_SSL_CA_PATH || process.env.NODE_EXTRA_CA_CERTS || undefined,
+    sslCaPem: process.env.MYSQL_SSL_CA_PEM || undefined,
     sslMode:
       sslModeParam === "true" || sslModeParam === "1" || sslModeParam === "required"
         ? "required"
@@ -53,7 +72,7 @@ function getMysqlConfig(): MysqlEnvConfig {
   const port = Number(process.env.MYSQL_PORT || "3306");
   const sslMode =
     process.env.MYSQL_SSL_MODE === "required" ||
-    host?.endsWith(".rds.amazonaws.com")
+    host && isAwsRdsHost(host)
       ? "required"
       : "disabled";
 
@@ -64,13 +83,50 @@ function getMysqlConfig(): MysqlEnvConfig {
   }
 
   return {
+    allowSelfSignedTls: parseBooleanEnv(process.env.MYSQL_SSL_ALLOW_SELF_SIGNED),
     host,
     user,
     password,
     database,
     port,
+    sslCaPath: process.env.MYSQL_SSL_CA_PATH || process.env.NODE_EXTRA_CA_CERTS || undefined,
+    sslCaPem: process.env.MYSQL_SSL_CA_PEM || undefined,
     sslMode
   };
+}
+
+function getMysqlSslOptions(config: MysqlEnvConfig) {
+  if (config.sslMode !== "required") {
+    return undefined;
+  }
+
+  if (isAwsRdsHost(config.host)) {
+    return "Amazon RDS";
+  }
+
+  if (config.sslCaPem) {
+    return {
+      ca: config.sslCaPem,
+      rejectUnauthorized: true
+    };
+  }
+
+  if (config.sslCaPath) {
+    return {
+      ca: readFileSync(config.sslCaPath, "utf8"),
+      rejectUnauthorized: true
+    };
+  }
+
+  if (config.allowSelfSignedTls) {
+    return {
+      rejectUnauthorized: false
+    };
+  }
+
+  throw new AuthConfigurationError(
+    "TLS is required for MySQL, but no trusted CA bundle is configured. Set MYSQL_SSL_CA_PATH, MYSQL_SSL_CA_PEM, or explicitly opt in to MYSQL_SSL_ALLOW_SELF_SIGNED=true."
+  );
 }
 
 export function getAuthPool() {
@@ -85,7 +141,7 @@ export function getAuthPool() {
     host: config.host,
     password: config.password,
     port: config.port,
-    ssl: config.sslMode === "required" ? {} : undefined,
+    ssl: getMysqlSslOptions(config),
     user: config.user,
     waitForConnections: true,
     connectionLimit: 10,
