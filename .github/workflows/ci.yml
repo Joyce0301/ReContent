@@ -4,9 +4,17 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "AGENTS.md"
   push:
     branches:
       - main
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - "AGENTS.md"
 
 permissions:
   contents: read

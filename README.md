@@ -1,6 +1,18 @@
 # ReContent
 
-ReContent 是一个登录后使用的内容重制工作台，面向“把一份长内容整理成适合单个平台发布的版本”这个场景。当前主流程已经从早期的开放式 Demo，演进成带账号体系、受保护工作区、URL 抽取、结构化生成和失败回退的可用原型。
+ReContent 想解决的，不是“怎么再多写一篇内容”，而是“已经有了内容，怎么更快把它整理成真正能发出去的版本”。
+
+很多创作者、运营和内容团队遇到的难点并不是没有素材，而是素材太散、太长、太原始。你可能已经有一篇文章、一段采访、一份播客逐字稿，或者只是一个值得利用的网页链接，但真正耗时间的，往往是把这些原始内容重新组织成适合某个平台发布的版本，还要兼顾语气、结构、长度和表达风格。
+
+ReContent 就是围绕这件事设计的。它不是单纯帮你“润色一段文案”的 AI 输入框，而是把内容抽取、结构整理、平台适配、语气控制和生成回退串成一条更贴近真实工作流的链路，让原始素材更快变成一份可继续编辑、可直接发布的成稿。
+
+当前版本已经开始体现出几个比较有代表性的产品亮点：
+
+- 可以直接从文本或 URL 开始，把分散素材收拢成统一输入
+- 面向具体平台生成，而不是只给出一段泛化改写结果
+- 支持语气风格和个性化要求，让结果更接近“你想怎么说”
+- 内置失败分类和保守模式 fallback，稳定性比一次性 prompt 调用更强
+- 已经具备登录、工作区和 MySQL 认证能力，正在从 Demo 走向可持续迭代的产品原型
 
 当前用户路径是：
 
@@ -310,6 +322,7 @@ npm run build
 - 触发条件
   - `pull_request` 到 `main`
   - `push` 到 `main`
+  - 纯文档改动会改走轻量 docs workflow，不进入重型 CI
 - 执行内容
   - `npm ci`
   - `npm run lint`
@@ -345,6 +358,7 @@ npm run build
 - `push` 到 `main`
 - 推送符合 `v*` 的 tag
 - 手动 `workflow_dispatch`
+- 仅当本次 push 包含可部署变更时，自动 deploy 才会运行；文档-only 合并不会触发 ECS 发布
 
 执行顺序大致是：
 
@@ -375,6 +389,7 @@ npm run build
 
 相关文件：
 
+- [.github/workflows/docs.yml](/Users/juice/Desktop/vibe%20coding/ReContent-readme-current/.github/workflows/docs.yml)
 - [.github/workflows/deploy.yml](/Users/juice/Desktop/vibe%20coding/ReContent-readme-current/.github/workflows/deploy.yml)
 
 ### 4. AWS 凭证怎么接进 CI/CD
