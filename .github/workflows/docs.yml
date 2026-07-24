@@ -1,0 +1,39 @@
+name: Docs
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "AGENTS.md"
+  push:
+    branches:
+      - main
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "AGENTS.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-check:
+    name: Docs Changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Confirm docs-only workflow
+        run: |
+          echo "Documentation-only change detected."
+          echo "Heavy CI and deploy workflows are skipped for docs-only changes."
