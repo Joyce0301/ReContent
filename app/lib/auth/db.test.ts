@@ -19,6 +19,25 @@ describe("getAuthPool", () => {
     readFileSyncMock.mockReset();
   });
 
+  it("configures MySQL DATETIME values to use UTC", async () => {
+    vi.stubEnv("MYSQL_HOST", "mysql.internal.example.com");
+    vi.stubEnv("MYSQL_PORT", "3306");
+    vi.stubEnv("MYSQL_USER", "admin");
+    vi.stubEnv("MYSQL_PASSWORD", "secret");
+    vi.stubEnv("MYSQL_DATABASE", "Recontentclient");
+    vi.stubEnv("MYSQL_SSL_MODE", "disabled");
+
+    const { getAuthPool } = await import("./db");
+
+    getAuthPool();
+
+    expect(createPoolMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timezone: "Z"
+      })
+    );
+  });
+
   it("uses the built-in Amazon RDS SSL profile for RDS hosts", async () => {
     vi.stubEnv(
       "MYSQL_HOST",

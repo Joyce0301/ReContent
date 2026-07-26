@@ -28,8 +28,70 @@ Also set:
 
 ## Schema
 
-Apply [mysql-auth-schema.sql](/Users/juice/Desktop/vibe%20coding/ReContent-auth-experience/docs/auth/mysql-auth-schema.sql)
-to your AWS MySQL database before enabling the auth routes.
+- **Fresh database:** Apply [mysql-auth-schema.sql](mysql-auth-schema.sql) before
+  enabling the auth routes. The current schema already includes the avatar
+  columns, so do not run the avatar migration afterward.
+- **Existing database:** If the `users` table predates the avatar columns, run
+  the guarded migration below before relying on avatar metadata.
+
+## Avatar metadata migration
+
+For an existing database, run the
+[2026-07-26 avatar metadata migration](migrations/2026-07-26-add-avatar-metadata.sql)
+before any application phase relies on the new columns. The migration guards
+each column independently, so it is safe to rerun after a complete execution or
+an interrupted partial execution.
+
+Core user reads in this app revision first select the avatar columns, then retry
+the legacy query only when MySQL reports one of those avatar columns as missing.
+That narrow fallback protects existing login and session-backed routes if an
+automatic ECS deployment reaches the database before the migration. It does not
+replace the migration; apply the migration before relying on avatar metadata.
+
+With the discrete MySQL environment variables configured, apply the migration
+from the repository root. `MYSQL_SSL_CA_PATH` must point to a trusted Amazon RDS
+global CA bundle:
+
+```bash
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" \
+  < docs/auth/migrations/2026-07-26-add-avatar-metadata.sql
+```
+
+Verify that all three columns exist in the selected database:
+
+```bash
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" <<'SQL'
+SELECT column_name, column_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'users'
+  AND column_name IN ('avatar_key', 'avatar_status', 'avatar_updated_at')
+ORDER BY FIELD(
+  column_name,
+  'avatar_key',
+  'avatar_status',
+  'avatar_updated_at'
+);
+SQL
+```
+
+A rollback script exists at
+`docs/auth/migrations/2026-07-26-add-avatar-metadata.rollback.sql`. Its
+per-column guards make repeated and partial rollback attempts safe, but it still
+drops the avatar columns and their data. Use it only after the application has
+already been rolled back to a revision that does not query these columns.
 
 ## ECS / AWS notes
 

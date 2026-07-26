@@ -1,10 +1,14 @@
 import Link from "next/link";
 
-import type { AuthSessionUser } from "../../lib/auth/types";
 import { LogoutButton } from "./logout-button";
 
+export type RecontentHeaderUser = {
+  displayName: string;
+  email: string;
+};
+
 type RecontentHeaderProps = {
-  user: AuthSessionUser;
+  user: RecontentHeaderUser;
 };
 
 export function RecontentHeader({ user }: RecontentHeaderProps) {

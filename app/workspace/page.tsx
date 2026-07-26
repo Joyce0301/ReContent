@@ -1,7 +1,9 @@
 import { AuthServiceUnavailable } from "../components/auth/auth-service-unavailable";
 import { redirect } from "next/navigation";
 import { AuthConfigurationError, AuthStorageUnavailableError } from "../lib/auth/errors";
-import WorkspacePageClient from "./workspace-client";
+import WorkspacePageClient, {
+  type WorkspacePresentationUser
+} from "./workspace-client";
 import { getAuthSession } from "../lib/auth/session";
 
 export default async function WorkspacePage() {
@@ -29,5 +31,10 @@ export default async function WorkspacePage() {
     redirect("/auth");
   }
 
-  return <WorkspacePageClient user={session.user} />;
+  const user: WorkspacePresentationUser = {
+    displayName: session.user.displayName,
+    email: session.user.email
+  };
+
+  return <WorkspacePageClient user={user} />;
 }

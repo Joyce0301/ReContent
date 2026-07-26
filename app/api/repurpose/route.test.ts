@@ -19,7 +19,10 @@ afterEach(() => {
     user: {
       id: "user-1",
       email: "joyce@example.com",
-      displayName: "Joyce"
+      displayName: "Joyce",
+      avatarKey: null,
+      avatarStatus: "not_uploaded",
+      avatarUpdatedAt: null
     },
     expiresAt: "2099-01-01T00:00:00.000Z"
   });

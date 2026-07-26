@@ -142,6 +142,7 @@ export function getAuthPool() {
     password: config.password,
     port: config.port,
     ssl: getMysqlSslOptions(config),
+    timezone: "Z",
     user: config.user,
     waitForConnections: true,
     connectionLimit: 10,

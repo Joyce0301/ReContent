@@ -17,10 +17,14 @@ import {
   type ToneKey,
   type XiaohongshuDraftBridgeResult
 } from "../components/recontent/types";
-import type { AuthSessionUser } from "../lib/auth/types";
+
+export type WorkspacePresentationUser = {
+  displayName: string;
+  email: string;
+};
 
 type WorkspacePageProps = {
-  user: AuthSessionUser;
+  user: WorkspacePresentationUser;
 };
 
 type RepurposeErrorResponse = {

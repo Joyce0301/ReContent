@@ -27,7 +27,10 @@ const session: AuthSession = {
   user: {
     id: "user-1",
     email: "joyce@example.com",
-    displayName: "Joyce"
+    displayName: "Joyce",
+    avatarKey: null,
+    avatarStatus: "not_uploaded",
+    avatarUpdatedAt: null
   },
   expiresAt: "2026-08-09T08:30:00.000Z"
 };
