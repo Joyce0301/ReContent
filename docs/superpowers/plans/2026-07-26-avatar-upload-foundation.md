@@ -1,160 +1,74 @@
 # Avatar Upload Foundation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> This plan records the final safety-scoped implementation. It intentionally
+> stops at authenticated metadata validation and does not persist an upload
+> intent.
 
-**Goal:** Add avatar metadata to MySQL, an authenticated upload-intent API, and an honest profile-page file preparation flow without sending image bytes or creating AWS resources.
+**Goal:** Prepare the schema, auth model, validation boundary, and profile UI
+for a later S3 avatar phase without uploading or saving an image.
 
-**Architecture:** Extend the existing user record and server-loaded auth session with normalized avatar metadata. A small avatar domain module validates client-declared file metadata and generates a user-scoped future S3 key; the protected API persists `pending_upload`. A focused client component provides local preview and status feedback while keeping the server-rendered profile boundary intact.
+**Architecture:** Core user reads prefer the avatar-aware schema and use a
+narrow legacy-query fallback only when MySQL reports a missing avatar column.
+The protected API authenticates, rate-limits, bounds, parses, and validates
+metadata before returning a dry-run response. The profile UI presents a local
+preview and honest storage-not-connected feedback.
 
-**Tech Stack:** Next.js App Router, React 19, TypeScript, MySQL/Aurora, Vitest, Testing Library, Tailwind CSS.
+**Tech Stack:** Next.js App Router, React 19, TypeScript, MySQL/Aurora, Vitest,
+Testing Library, Tailwind CSS.
 
 ---
 
+## Final Scope
+
+Included:
+
+- Avatar columns, status types, normalization, and user/session mappings.
+- Guarded forward and rollback migrations.
+- Rollout-safe legacy reads for existing databases awaiting migration.
+- Metadata validation and a standalone future object-key helper.
+- Authenticated, rate-limited, bounded dry-run API.
+- Local profile preview and honest `待接入 S3` feedback.
+- Required CI coverage and migration operations documentation.
+
+Excluded:
+
+- Image-byte transfer.
+- Object-key generation inside `POST /api/profile/avatar`.
+- Avatar database writes or `pending_upload` mutation.
+- A missing-update `404` path.
+- S3, presigned URLs, IAM, CORS, Lambda, or stored-avatar rendering.
+
 ## File Map
 
-- Create `docs/auth/migrations/2026-07-26-add-avatar-metadata.sql`: one-time Aurora MySQL forward migration.
-- Create `docs/auth/migrations/2026-07-26-add-avatar-metadata.rollback.sql`: explicit rollback.
-- Modify `docs/auth/mysql-auth-schema.sql`: make fresh database installs include avatar columns.
-- Create `app/lib/avatar/types.ts`: avatar states and normalization.
-- Create `app/lib/avatar/types.test.ts`: state normalization tests.
-- Create `app/lib/avatar/validation.ts`: upload-intent request validation.
-- Create `app/lib/avatar/validation.test.ts`: metadata boundary tests.
-- Create `app/lib/avatar/object-key.ts`: server-owned avatar key generation.
-- Create `app/lib/avatar/object-key.test.ts`: key ownership/extension tests.
-- Modify `app/lib/auth/types.ts`: add normalized avatar metadata to user/session types.
-- Modify `app/lib/auth/user-store.ts`: select/map avatar fields and reserve a pending upload.
-- Create `app/lib/auth/user-store.test.ts`: query mapping and update ownership tests.
-- Create `app/api/profile/avatar/route.ts`: authenticated upload-intent endpoint.
-- Create `app/api/profile/avatar/route.test.ts`: API behavior and failure-path tests.
-- Create `app/profile/avatar-upload-control.tsx`: client selection, preview, request, and status UI.
-- Create `app/profile/avatar-upload-control.test.tsx`: client validation and request tests.
-- Modify `app/profile/profile-view.tsx`: mount the focused upload control.
-- Modify `app/profile/profile-view.test.tsx`: replace the static-placeholder expectations.
-- Modify `.github/workflows/ci.yml`: include auth/profile/avatar tests in PR CI.
-- Modify `docs/auth/mysql-auth-setup.md`: document migration-before-deploy ordering.
+- `docs/auth/mysql-auth-schema.sql`: avatar columns for fresh databases.
+- `docs/auth/migrations/2026-07-26-add-avatar-metadata.sql`: guarded forward
+  migration for existing databases.
+- `docs/auth/migrations/2026-07-26-add-avatar-metadata.rollback.sql`: guarded,
+  destructive rollback.
+- `docs/auth/mysql-auth-setup.md`: verified-TLS migration and rollout guidance.
+- `app/lib/avatar/types.ts`: avatar states and normalization.
+- `app/lib/avatar/validation.ts`: declared metadata validation.
+- `app/lib/avatar/object-key.ts`: standalone helper reserved for the next S3
+  phase; the current route must not import it.
+- `app/lib/auth/types.ts`: normalized avatar fields on user/session types.
+- `app/lib/auth/user-store.ts`: avatar-aware reads and precise legacy fallback.
+- `app/api/profile/avatar/route.ts`: authenticated metadata-validation dry run.
+- `app/profile/avatar-upload-control.tsx`: local preview and dry-run UI.
+- `.github/workflows/ci.yml`: required non-live regression coverage.
 
-## Task 1: Database Metadata And Auth Mapping
+## Task 1: Schema, Mapping, And Rollout Safety
 
-**Files:**
-- Create: `docs/auth/migrations/2026-07-26-add-avatar-metadata.sql`
-- Create: `docs/auth/migrations/2026-07-26-add-avatar-metadata.rollback.sql`
-- Modify: `docs/auth/mysql-auth-schema.sql`
-- Create: `app/lib/avatar/types.ts`
-- Create: `app/lib/avatar/types.test.ts`
-- Modify: `app/lib/auth/types.ts`
-- Modify: `app/lib/auth/user-store.ts`
-- Create: `app/lib/auth/user-store.test.ts`
+### Schema And Types
 
-- [ ] **Step 1: Write avatar-state normalization tests**
+The current `users` schema contains:
 
-Create `app/lib/avatar/types.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { normalizeAvatarStatus } from "./types";
-
-describe("normalizeAvatarStatus", () => {
-  it.each(["not_uploaded", "pending_upload", "ready", "failed"] as const)(
-    "keeps known status %s",
-    status => {
-      expect(normalizeAvatarStatus(status)).toBe(status);
-    }
-  );
-
-  it.each([null, undefined, "", "processing", 1])(
-    "maps unknown value %j to not_uploaded",
-    value => {
-      expect(normalizeAvatarStatus(value)).toBe("not_uploaded");
-    }
-  );
-});
+```sql
+avatar_key VARCHAR(512) NULL
+avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded'
+avatar_updated_at DATETIME NULL
 ```
 
-- [ ] **Step 2: Run the state test and verify RED**
-
-Run:
-
-```bash
-npx vitest run app/lib/avatar/types.test.ts
-```
-
-Expected: FAIL because `app/lib/avatar/types.ts` does not exist.
-
-- [ ] **Step 3: Implement the avatar state domain**
-
-Create `app/lib/avatar/types.ts`:
-
-```ts
-export const AVATAR_STATUSES = [
-  "not_uploaded",
-  "pending_upload",
-  "ready",
-  "failed"
-] as const;
-
-export type AvatarStatus = (typeof AVATAR_STATUSES)[number];
-
-export function normalizeAvatarStatus(value: unknown): AvatarStatus {
-  return typeof value === "string" &&
-    AVATAR_STATUSES.includes(value as AvatarStatus)
-    ? (value as AvatarStatus)
-    : "not_uploaded";
-}
-```
-
-- [ ] **Step 4: Write user-store mapping and ownership tests**
-
-Mock `./db` before importing `./user-store`. Cover:
-
-```ts
-expect(findUserById("user-1")).resolves.toMatchObject({
-  avatarKey: null,
-  avatarStatus: "not_uploaded",
-  avatarUpdatedAt: null
-});
-```
-
-```ts
-expect(findUserById("user-1")).resolves.toMatchObject({
-  avatarKey: "avatars/originals/user-1/file.webp",
-  avatarStatus: "pending_upload",
-  avatarUpdatedAt: "2026-07-26T09:00:00.000Z"
-});
-```
-
-```ts
-await reserveAvatarUpload({
-  userId: "user-1",
-  objectKey: "avatars/originals/user-1/file.webp",
-  updatedAt: new Date("2026-07-26T09:00:00.000Z")
-});
-
-expect(executeMock).toHaveBeenCalledWith(
-  expect.stringContaining("WHERE id = ?"),
-  [
-    "avatars/originals/user-1/file.webp",
-    "2026-07-26 09:00:00",
-    "user-1"
-  ]
-);
-```
-
-The mocked `execute` result must cover both `affectedRows: 1` and
-`affectedRows: 0`; `reserveAvatarUpload()` returns `true` only for the former.
-
-- [ ] **Step 5: Run the user-store test and verify RED**
-
-Run:
-
-```bash
-npx vitest run app/lib/auth/user-store.test.ts
-```
-
-Expected: FAIL because avatar fields and `reserveAvatarUpload` are absent.
-
-- [ ] **Step 6: Extend auth types and user-store queries**
-
-Add to `AuthUserRecord` and `AuthSessionUser`:
+`AuthUserRecord` and `AuthSessionUser` contain:
 
 ```ts
 avatarKey: string | null;
@@ -162,381 +76,201 @@ avatarStatus: AvatarStatus;
 avatarUpdatedAt: string | null;
 ```
 
-Extend `AuthUserRow` with:
+Keep `not_uploaded`, `pending_upload`, `ready`, and `failed` in the type model
+for future storage/processing phases. Unknown database status values normalize
+to `not_uploaded`. This phase does not write any of those states.
 
-```ts
-avatar_key: string | null;
-avatar_status: string | null;
-avatar_updated_at: Date | string | null;
-```
+### Precise Legacy Fallback
 
-Select `avatar_key`, `avatar_status`, and `avatar_updated_at` in both user
-queries. Map nullable dates and call `normalizeAvatarStatus()`.
+Implement email and ID reads in this order:
 
-Add:
+1. Query `avatar_key`, `avatar_status`, and `avatar_updated_at` with the core
+   user columns.
+2. Return the fully mapped user when the query succeeds.
+3. Retry the legacy query only for MySQL `ER_BAD_FIELD_ERROR`/1054 whose error
+   text names `avatar_key`, `avatar_status`, or `avatar_updated_at`.
+4. Map a legacy row to null avatar key/timestamp and `not_uploaded`.
+5. Rethrow every unrelated SQL, connectivity, configuration, or missing-column
+   error.
 
-```ts
-export async function reserveAvatarUpload(input: {
-  userId: string;
-  objectKey: string;
-  updatedAt: Date;
-}) {
-  const [result] = await execute(
-    `UPDATE users
-     SET avatar_key = ?, avatar_status = 'pending_upload', avatar_updated_at = ?
-     WHERE id = ?`,
-    [
-      input.objectKey,
-      formatMysqlUtcDatetime(input.updatedAt),
-      input.userId
-    ]
-  );
+This fallback protects login and session-backed routes when an automatic ECS
+deployment is ahead of the migration. It must not mask general schema drift.
 
-  return "affectedRows" in result && result.affectedRows === 1;
-}
-```
+### Repeat-Safe Migrations
 
-Pass the mapped avatar fields through `getAuthSession()` when constructing
-`session.user`.
+The forward migration checks each column through
+`information_schema.columns`, adding only a missing column. Each guard is
+independent so rerunning after a partial migration completes the remaining
+work.
 
-- [ ] **Step 7: Add forward, rollback, and fresh-install SQL**
+The rollback checks each column independently and drops only columns that
+exist, in reverse order. It is repeat-safe and partial-run-safe, but remains
+destructive and may run only after rolling the application back.
 
-Forward migration:
+Fresh databases apply `mysql-auth-schema.sql` only. Existing databases apply
+the guarded forward migration before relying on avatar metadata.
 
-```sql
-ALTER TABLE users
-  ADD COLUMN avatar_key VARCHAR(512) NULL AFTER display_name,
-  ADD COLUMN avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded' AFTER avatar_key,
-  ADD COLUMN avatar_updated_at DATETIME NULL AFTER avatar_status;
-```
-
-Rollback:
-
-```sql
-ALTER TABLE users
-  DROP COLUMN avatar_updated_at,
-  DROP COLUMN avatar_status,
-  DROP COLUMN avatar_key;
-```
-
-Add the same three definitions to the base `CREATE TABLE users` schema.
-
-- [ ] **Step 8: Verify Task 1**
-
-Run:
+### Verification
 
 ```bash
-npx vitest run app/lib/avatar/types.test.ts app/lib/auth/user-store.test.ts app/lib/auth/session.test.ts
-npm run lint -- --no-warn-ignored app/lib/avatar app/lib/auth/types.ts app/lib/auth/user-store.ts app/lib/auth/user-store.test.ts
-git diff --check
+npx vitest run \
+  app/lib/avatar/types.test.ts \
+  app/lib/auth/user-store.test.ts \
+  app/lib/auth/session.test.ts
 ```
 
-Expected: all tests and lint pass. Do not commit yet; repository policy
-requires final independent reviews before implementation commits.
+Required cases:
 
-## Task 2: Upload Metadata Validation And Protected API
+- Avatar-aware reads and normalized mapping.
+- Legacy fallback for each missing avatar column.
+- No fallback for unrelated missing fields or other database failures.
+- Forward and rollback migration guards for complete and partial states.
 
-**Files:**
-- Create: `app/lib/avatar/validation.ts`
-- Create: `app/lib/avatar/validation.test.ts`
-- Create: `app/lib/avatar/object-key.ts`
-- Create: `app/lib/avatar/object-key.test.ts`
-- Create: `app/api/profile/avatar/route.ts`
-- Create: `app/api/profile/avatar/route.test.ts`
+## Task 2: Bounded Metadata Dry-Run API
 
-- [ ] **Step 1: Write validation tests**
+### Validation Domain
 
-Cover valid `.jpg`, `.jpeg`, `.png`, and `.webp` metadata. Cover:
+Accept:
 
-```ts
-expect(validateAvatarUploadIntent({
-  fileName: "avatar.gif",
-  contentType: "image/gif",
-  sizeBytes: 100
-})).toEqual({ ok: false, error: "仅支持 JPEG、PNG 或 WebP 图片" });
-```
+- Non-empty `fileName` up to 255 characters.
+- `image/jpeg`, `image/png`, or `image/webp`.
+- Integer `sizeBytes` from 1 through 5 MiB.
+- Matching `.jpg`/`.jpeg`, `.png`, or `.webp` extension.
 
-Also reject empty names, names over 255 characters, extension/MIME mismatch,
-zero bytes, non-integers, and values greater than `5 * 1024 * 1024`.
+Normalize `.jpeg` to `jpg` in validation output. Do not trust a client-provided
+user ID or object key.
 
-- [ ] **Step 2: Run validation tests and verify RED**
+The standalone object-key helper and its tests may remain for the next phase.
+The current route must have no import or dependency on that helper.
 
-Run:
+### Route Order
 
-```bash
-npx vitest run app/lib/avatar/validation.test.ts
-```
+`POST /api/profile/avatar`:
 
-Expected: FAIL because the validator does not exist.
+1. Load the auth session before reading input.
+2. Return `401` when the session is absent.
+3. Consume the `avatar-upload-intent` rate-limit bucket using the authenticated
+   user ID, with 20 requests per 10 minutes.
+4. Return `429` with `Retry-After` when throttled.
+5. Validate `Content-Length`; reject malformed values with `400` and values
+   over 8 KiB with `413`.
+6. Read and count the actual stream up to 8 KiB, regardless of its declaration.
+7. Return `413` for an oversized actual body.
+8. Return a controlled `400` for malformed JSON or an aborted/failing stream.
+9. Validate the metadata and return `400` for invalid values.
+10. Return the exact `200` dry-run response.
 
-- [ ] **Step 3: Implement validation**
+Recognized auth configuration/storage errors return `503`. Unexpected errors
+remain visible to the framework.
 
-Export:
+### Success Contract
 
-```ts
-export const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
-
-export type AvatarUploadIntent = {
-  fileName: string;
-  contentType: "image/jpeg" | "image/png" | "image/webp";
-  sizeBytes: number;
-  extension: "jpg" | "png" | "webp";
-};
-
-export function validateAvatarUploadIntent(
-  value: unknown
-):
-  | { ok: true; value: AvatarUploadIntent }
-  | { ok: false; error: string };
-```
-
-Normalize `.jpeg` to extension `jpg`. Do not trust or return any client object
-key or user ID.
-
-- [ ] **Step 4: Write object-key tests**
-
-Stub `randomUUID()` or inject a UUID into a pure helper and assert:
-
-```ts
-expect(createAvatarObjectKey({
-  userId: "user-1",
-  extension: "webp",
-  id: "file-id"
-})).toBe("avatars/originals/user-1/file-id.webp");
-```
-
-Reject user IDs or IDs containing `/`, `\`, `..`, or empty strings so a
-future storage key cannot escape its prefix.
-
-- [ ] **Step 5: Implement the object-key helper**
-
-Use a pure exported helper for tests plus a production wrapper:
-
-```ts
-export function createAvatarObjectKey(input: {
-  userId: string;
-  extension: "jpg" | "png" | "webp";
-  id?: string;
-}) {
-  const id = input.id ?? randomUUID();
-  assertSafeSegment(input.userId);
-  assertSafeSegment(id);
-  return `avatars/originals/${input.userId}/${id}.${input.extension}`;
-}
-```
-
-- [ ] **Step 6: Write API route tests**
-
-Mock `getAuthSession`, `consumeRateLimit`, `createAvatarObjectKey`, and
-`reserveAvatarUpload`. Cover:
-
-- no session -> `401`
-- auth storage/config error -> `503`
-- `Content-Length: 9000` -> `413` before JSON parsing
-- malformed JSON -> `400`
-- invalid metadata -> `400`
-- throttled -> `429` and `Retry-After`
-- valid metadata -> `201`, generated server key passed to
-  `reserveAvatarUpload`, response excludes key and user ID
-- missing user update -> `404`
-- unexpected exception -> rethrown
-
-The successful response assertion is:
-
-```ts
-expect(await response.json()).toEqual({
-  avatar: {
-    status: "pending_upload",
-    updatedAt: "2026-07-26T09:00:00.000Z"
+```json
+{
+  "validation": {
+    "status": "ready_for_storage"
   },
-  message: "头像文件已通过校验，S3 存储将在下一阶段接入"
-});
+  "message": "头像信息已通过校验，图片尚未上传或保存"
+}
 ```
 
-- [ ] **Step 7: Run API tests and verify RED**
+The route must not:
 
-Run:
+- Generate an object key.
+- Call an avatar persistence function.
+- Write any user row.
+- Change `avatar_status` to `pending_upload`.
+- Return `201` or a missing-update `404`.
+- Claim upload or save completion.
+
+### Verification
 
 ```bash
-npx vitest run app/api/profile/avatar/route.test.ts
+npx vitest run \
+  app/lib/avatar/*.test.ts \
+  app/api/profile/avatar/route.test.ts \
+  app/lib/auth/user-store.test.ts
 ```
 
-Expected: FAIL because the route does not exist.
+Required cases include unauthenticated access, auth failures, per-user
+throttling, malformed `Content-Length`, declared and actual body boundaries,
+malformed JSON, failed streams, metadata boundaries, the exact `200` response,
+and absence of persistence/object-key route dependencies.
 
-- [ ] **Step 8: Implement the protected route**
+## Task 3: Honest Profile Dry-Run UI
 
-Implement this order:
+The client control receives only the avatar initial and normalized initial
+status. It must not receive user IDs, object keys, cookies, or tokens.
 
-1. Reject declared JSON bodies over 8 KiB.
-2. Call `getAuthSession()`.
-3. Return `401` when absent.
-4. Consume the `avatar-upload-intent` rate-limit bucket using
-   `session.user.id`.
-5. Parse JSON and validate metadata.
-6. Create the key from session user ID and normalized extension.
-7. Persist `pending_upload`.
-8. Return `201` without object key/user ID.
+On selection:
 
-Catch only recognized auth/storage errors for `503`; rethrow unknown errors.
+- Validate metadata before requesting the API.
+- Show a temporary preview labelled `本地预览，尚未保存`.
+- Send only `fileName`, `file.type`, and `file.size`.
+- Keep the existing avatar initial visible as the persisted-state fallback.
 
-- [ ] **Step 9: Verify Task 2**
+On the exact successful response:
 
-Run:
+- Show `待接入 S3`.
+- Show `头像信息已通过校验，图片尚未上传或保存`.
+- Never show an uploaded/saved success claim.
+- Disable repeat submission until the user selects a new file.
+
+On cleanup:
+
+- Revoke replaced and unmounted object URLs.
+- Abort an in-flight request on unmount.
+- Ignore the resulting abort rather than showing a stale network error.
+
+### Verification
 
 ```bash
-npx vitest run app/lib/avatar/*.test.ts app/api/profile/avatar/route.test.ts app/lib/auth/user-store.test.ts
-npm run lint -- --no-warn-ignored app/lib/avatar app/api/profile/avatar
-git diff --check
+npx vitest run \
+  app/profile/avatar-upload-control.test.tsx \
+  app/profile/profile-view.test.tsx \
+  app/profile/page.test.tsx \
+  app/components/recontent/header.test.tsx \
+  app/workspace/page.test.tsx \
+  app/page.test.tsx
 ```
 
-Expected: all pass. Do not commit yet.
+Verify local validation, metadata-only requests, exact success text, no
+upload/save claim, response errors, malformed responses, request abort, preview
+cleanup, profile protection, header, workspace, and home-page regressions.
 
-## Task 3: Profile File Preparation UI
+## Task 4: CI And Deployment Documentation
 
-**Files:**
-- Create: `app/profile/avatar-upload-control.tsx`
-- Create: `app/profile/avatar-upload-control.test.tsx`
-- Modify: `app/profile/profile-view.tsx`
-- Modify: `app/profile/profile-view.test.tsx`
-
-- [ ] **Step 1: Write client control tests**
-
-Mock `URL.createObjectURL`, `URL.revokeObjectURL`, and `fetch`. Test:
-
-- initial `not_uploaded` state and accepted file types
-- invalid GIF and a file over 5 MiB do not call `fetch`
-- valid WebP sends JSON metadata only
-- submit button is disabled while the request is pending
-- `201` shows `待接入 S3` and the honest server message
-- `400`, `401`, `429`, `503`, malformed response, and rejected fetch show
-  stable user feedback
-- changing selection revokes the prior preview URL
-- unmount revokes the current preview URL
-
-Use a deferred promise in the pending-state test:
-
-```ts
-let resolveFetch!: (response: Response) => void;
-fetchMock.mockReturnValue(
-  new Promise<Response>(resolve => {
-    resolveFetch = resolve;
-  })
-);
-```
-
-- [ ] **Step 2: Run the control test and verify RED**
-
-Run:
+PR CI runs:
 
 ```bash
-npx vitest run app/profile/avatar-upload-control.test.tsx
+npx vitest run \
+  app/api/repurpose/*.test.ts \
+  app/api/auth/*/route.test.ts \
+  app/api/profile/avatar/route.test.ts \
+  app/lib/auth/*.test.ts \
+  app/lib/avatar/*.test.ts \
+  app/components/recontent/header.test.tsx \
+  app/profile/*.test.tsx \
+  app/workspace/*.test.tsx \
+  app/page.test.tsx \
+  --exclude app/api/repurpose/content-extraction.live.test.ts
 ```
 
-Expected: FAIL because the component does not exist.
+Keep the opt-in live extraction suite outside required CI. Preserve lint,
+production build, Docker build, permissions, concurrency, and docs-only
+`paths-ignore`.
 
-- [ ] **Step 3: Implement `AvatarUploadControl`**
+Deployment documentation must state:
 
-The client component receives:
+- Existing databases should run the guarded migration over verified TLS before
+  relying on avatar metadata.
+- A late migration does not break existing auth because core reads have the
+  precise legacy fallback.
+- Fresh databases use the current full schema and do not run the forward
+  migration afterward.
+- Rollback is guarded but destructive and follows application rollback only.
 
-```ts
-type AvatarUploadControlProps = {
-  avatarInitial: string;
-  initialStatus: AvatarStatus;
-};
-```
-
-Use `useEffect` to revoke the active object URL. Use an `onChange` handler to
-validate the selected `File` with a client wrapper around the same metadata
-validator. Submit:
-
-```ts
-await fetch("/api/profile/avatar", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    fileName: file.name,
-    contentType: file.type,
-    sizeBytes: file.size
-  })
-});
-```
-
-The UI must use "准备上传" rather than "上传成功" and explain that S3 storage is
-not connected yet. Keep controls at least 44px high and retain a visible focus
-ring.
-
-- [ ] **Step 4: Integrate the control into `ProfileView`**
-
-Replace the static avatar placeholder/message with:
-
-```tsx
-<AvatarUploadControl
-  avatarInitial={avatarInitial}
-  initialStatus={session.user.avatarStatus}
-/>
-```
-
-Keep name/email/session details server-rendered. Do not pass `user.id`,
-`avatarKey`, cookies, or tokens into the client component.
-
-- [ ] **Step 5: Update profile tests**
-
-Mock `AvatarUploadControl` in `profile-view.test.tsx` and assert only
-`avatarInitial` and `initialStatus` are passed. Remove the old assertion that
-no file input exists; retain all secret/internal-ID non-rendering assertions.
-
-- [ ] **Step 6: Verify Task 3**
-
-Run:
-
-```bash
-npx vitest run app/profile/avatar-upload-control.test.tsx app/profile/profile-view.test.tsx app/profile/page.test.tsx app/components/recontent/header.test.tsx
-npm run lint -- --no-warn-ignored app/profile
-git diff --check
-```
-
-Expected: all pass. Do not commit yet.
-
-## Task 4: CI, Deployment Notes, And Final Delivery
-
-**Files:**
-- Modify: `.github/workflows/ci.yml`
-- Modify: `docs/auth/mysql-auth-setup.md`
-
-- [ ] **Step 1: Expand CI test coverage**
-
-Replace the narrow test command with shell-expandable paths:
-
-```yaml
-- name: Test
-  run: >
-    npx vitest run
-    app/api/repurpose/*.test.ts
-    app/api/auth/*/route.test.ts
-    app/api/profile/avatar/route.test.ts
-    app/lib/auth/*.test.ts
-    app/lib/avatar/*.test.ts
-    app/components/recontent/header.test.tsx
-    app/profile/*.test.tsx
-    app/page.test.tsx
-```
-
-Do not include the conditional live extraction test in required PR CI.
-
-- [ ] **Step 2: Document migration ordering**
-
-Add a section to `docs/auth/mysql-auth-setup.md` with:
-
-```bash
-mysql -h "$MYSQL_HOST" -P "${MYSQL_PORT:-3306}" -u "$MYSQL_USER" -p \
-  "$MYSQL_DATABASE" < docs/auth/migrations/2026-07-26-add-avatar-metadata.sql
-```
-
-State explicitly that this runs before deploying the avatar-foundation image,
-and include a query checking the three columns through
-`information_schema.columns`.
-
-- [ ] **Step 3: Run the full local gate**
+## Final Gate
 
 Run:
 
@@ -549,62 +283,15 @@ npx vitest run \
   app/lib/avatar/*.test.ts \
   app/components/recontent/header.test.tsx \
   app/profile/*.test.tsx \
-  app/page.test.tsx
+  app/workspace/*.test.tsx \
+  app/page.test.tsx \
+  --exclude app/api/repurpose/content-extraction.live.test.ts
 npm run lint
 NEXT_TELEMETRY_DISABLED=1 npm run build
 git diff --check
 ```
 
-Expected: all required tests, lint, and production build pass.
-
-- [ ] **Step 4: Perform mobile visual QA**
-
-Run the app with a temporary preview fixture or a valid local session. Check
-`320px` and `375px` widths with a long filename and long email:
-
-- no horizontal overflow
-- file input/label and submit action remain at least 44px tall
-- preview is labelled as local
-- status text never says the file is stored
-- existing account details remain readable
-
-Remove any temporary preview fixture before review.
-
-- [ ] **Step 5: Required independent code review**
-
-Dispatch an independent reviewer over the complete implementation diff.
-Prioritize auth ownership, SQL migration safety, file validation boundaries,
-secret/key exposure, UI state races, tests, and deployment ordering. Fix all
-Critical/Important findings and rerun Step 3.
-
-- [ ] **Step 6: Required adversarial review**
-
-Dispatch a separate reviewer to attack malformed JSON, spoofed MIME/extensions,
-huge declared values, unauthenticated requests, rate-limit bypass, object-key
-traversal, deleted users, repeated clicks, stale previews, network failures,
-missing database columns, and ECS build differences. Fix all high-risk
-findings and rerun Step 3.
-
-- [ ] **Step 7: Commit the implementation**
-
-Stage only the files listed in this plan and commit:
-
-```bash
-git commit -m "feat: add avatar upload foundation"
-```
-
-- [ ] **Step 8: Push and create PR**
-
-Push `codex/avatar-upload-foundation`. The PR must state:
-
-- migration must run before ECS deployment
-- no image bytes, S3, Lambda, IAM, or public avatar are included
-- API reserves a pending object key owned by the authenticated user
-- local tests, lint, build, mobile QA, code review, and adversarial review
-  results
-
-- [ ] **Step 9: Observe CI/CD**
-
-Watch GitHub checks to a terminal state. Confirm whether any ECS or Cloudflare
-deployment check is registered on the PR; do not claim a deployment ran if no
-deployment check exists.
+Independent code review and adversarial review should prioritize fallback
+precision, migration partial-run safety, bounded stream failures, accidental
+persistence, misleading UI claims, secret/key exposure, regressions, and
+deployment differences.

@@ -46,7 +46,18 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npx vitest run app/api/repurpose/*.test.ts
+        run: |
+          npx vitest run \
+            app/api/repurpose/*.test.ts \
+            app/api/auth/*/route.test.ts \
+            app/api/profile/avatar/route.test.ts \
+            app/lib/auth/*.test.ts \
+            app/lib/avatar/*.test.ts \
+            app/components/recontent/header.test.tsx \
+            app/profile/*.test.tsx \
+            app/workspace/*.test.tsx \
+            app/page.test.tsx \
+            --exclude app/api/repurpose/content-extraction.live.test.ts
 
       - name: Build
         run: npm run build

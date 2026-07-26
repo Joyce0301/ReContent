@@ -147,7 +147,10 @@ export async function getAuthSession() {
     user: {
       id: user.id,
       email: user.email,
-      displayName: user.displayName
+      displayName: user.displayName,
+      avatarKey: user.avatarKey,
+      avatarStatus: user.avatarStatus,
+      avatarUpdatedAt: user.avatarUpdatedAt
     },
     expiresAt: payload.expiresAt
   };

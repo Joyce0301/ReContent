@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   display_name VARCHAR(100) NOT NULL,
+  avatar_key VARCHAR(512) NULL,
+  avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded',
+  avatar_updated_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

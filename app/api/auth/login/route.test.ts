@@ -63,6 +63,9 @@ describe("POST /api/auth/login", () => {
         email: "joyce@example.com",
         displayName: "Joyce",
         passwordHash: "hashed-password",
+        avatarKey: null,
+        avatarStatus: "not_uploaded",
+        avatarUpdatedAt: null,
         createdAt: "2026-07-22T00:00:00.000Z"
       })
     }));
@@ -120,6 +123,9 @@ describe("POST /api/auth/login", () => {
         email: "joyce@example.com",
         displayName: "Joyce",
         passwordHash: "hashed-password",
+        avatarKey: null,
+        avatarStatus: "not_uploaded",
+        avatarUpdatedAt: null,
         createdAt: "2026-07-22T00:00:00.000Z"
       })
     }));

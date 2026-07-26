@@ -21,7 +21,10 @@ describe("RecontentHeader profile link", () => {
   const user = {
     id: "internal-user-id",
     email: "joyce@example.com",
-    displayName: "Joyce"
+    displayName: "Joyce",
+    avatarKey: null,
+    avatarStatus: "not_uploaded" as const,
+    avatarUpdatedAt: null
   };
 
   afterEach(() => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { LogoutButton } from "../components/recontent/logout-button";
 import type { AuthSession } from "../lib/auth/types";
+import { AvatarUploadControl } from "./avatar-upload-control";
 
 type ProfileViewProps = {
   session: AuthSession;
@@ -23,7 +24,7 @@ function formatSessionExpiry(value: string) {
 
 export function ProfileView({ session }: ProfileViewProps) {
   const {
-    user: { displayName, email },
+    user: { displayName, email, avatarStatus },
     expiresAt
   } = session;
   const avatarInitial = displayName.slice(0, 1).toUpperCase();
@@ -54,21 +55,15 @@ export function ProfileView({ session }: ProfileViewProps) {
       <section className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
         <article className="rounded-[32px] border border-slate-200/80 bg-white/88 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)] sm:p-8">
           <div className="flex flex-col items-start gap-5">
-            <div
-              role="img"
-              aria-label={`${displayName} 的头像占位`}
-              className="flex h-24 w-24 items-center justify-center rounded-[28px] bg-[radial-gradient(circle_at_30%_30%,rgba(125,211,252,0.96)_0%,rgba(37,99,235,0.88)_58%,rgba(15,23,42,0.94)_100%)] text-3xl font-semibold text-white shadow-[0_18px_48px_rgba(37,99,235,0.24)]"
-            >
-              {avatarInitial}
-            </div>
+            <AvatarUploadControl
+              avatarInitial={avatarInitial}
+              initialStatus={avatarStatus}
+            />
             <div className="min-w-0 max-w-full">
               <h2 className="break-words text-xl font-semibold text-slate-950">
                 {displayName}
               </h2>
               <p className="mt-1 break-all text-sm text-slate-500">{email}</p>
-            </div>
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-500">
-              头像上传将在下一阶段开放
             </div>
           </div>
         </article>

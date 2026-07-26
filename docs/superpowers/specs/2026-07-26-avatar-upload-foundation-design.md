@@ -2,62 +2,40 @@
 
 ## Summary
 
-This phase adds the data model, authenticated upload-intent API, validation,
-and profile-page interaction needed for avatar uploads. It deliberately does
-not transfer image bytes, create AWS resources, sign S3 requests, invoke
-Lambda, or display a processed avatar.
+This phase prepares ReContent for a later S3 avatar flow without uploading or
+saving an image. It adds avatar columns and normalized user/session mappings,
+rollout-safe legacy reads, an authenticated metadata-validation endpoint, and
+an honest profile-page dry-run interaction.
 
-The API boundary is designed so the next phase can add an S3 presigned URL to
-the successful response without changing the client request or database
-metadata model.
+The current endpoint validates only browser-declared metadata. It does not
+generate an object key, write avatar metadata to MySQL, mutate
+`pending_upload`, transfer image bytes, or reserve storage.
 
 ## Goals
 
-- Store avatar object metadata and processing state on the existing `users`
-  row.
-- Let an authenticated user select a candidate avatar on `/profile`.
-- Validate the candidate's declared filename, MIME type, and byte size.
-- Create a user-scoped object key and persist a `pending_upload` state.
-- Show accurate pending, success, and failure feedback without claiming that
-  image bytes were uploaded.
-- Preserve all existing authentication, workspace, and logout behavior.
+- Add the avatar columns, application types, and user/session mapping needed by
+  the next S3 phase.
+- Keep login and protected user reads available if an automatic ECS deployment
+  reaches an existing database before its avatar migration.
+- Validate candidate filename, MIME type, and byte size through an authenticated,
+  rate-limited, bounded endpoint.
+- Let `/profile` provide a local preview and clearly report `待接入 S3`.
+- Preserve existing authentication, workspace, header, and logout behavior.
 
 ## Non-Goals
 
-- Sending image bytes to the Next.js server.
-- S3 buckets, presigned requests, AWS SDK dependencies, IAM, or CORS.
-- Lambda image compression, image dimension validation, malware scanning, or
-  file-signature inspection.
+- Uploading image bytes or saving avatar metadata.
+- Generating or reserving an S3 object key in the API route.
+- Mutating `avatar_status` to `pending_upload`.
+- S3 buckets, presigned requests, AWS SDK dependencies, IAM, CORS, or Lambda.
+- Image dimension, file-signature, malware, or server-side byte inspection.
 - Public or signed avatar delivery URLs.
 - Rendering a stored avatar in the workspace header.
 - Automatic database schema mutation during application startup.
 
-## Approaches Considered
-
-### Upload intent with metadata only
-
-The browser sends a small JSON request containing the selected file's name,
-declared MIME type, and size. The server validates it, creates a user-scoped
-future S3 object key, and records `pending_upload`.
-
-This is the selected approach. It avoids temporary ECS disk storage and large
-request bodies while preserving the exact contract needed for the S3 phase.
-
-### Store image bytes on ECS local disk
-
-This would make the UI look complete sooner, but files could disappear during
-task replacement or scaling. It is incompatible with stateless ECS
-deployments and is rejected.
-
-### Add S3 presigned upload immediately
-
-This would deliver a complete upload path, but it combines database, API, IAM,
-bucket CORS, and cloud deployment work in one change. It is deferred to keep
-the current phase isolated and reviewable.
-
 ## Database Model
 
-The existing `users` table gains three nullable/defaulted columns:
+The current `users` schema includes:
 
 ```sql
 avatar_key VARCHAR(512) NULL
@@ -65,23 +43,12 @@ avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded'
 avatar_updated_at DATETIME NULL
 ```
 
-Supported application states are:
+The application model recognizes `not_uploaded`, `pending_upload`, `ready`, and
+`failed`. These states and columns exist for the later storage and processing
+flow; this phase does not write any avatar state. Fresh registrations map to
+`not_uploaded` with null key and timestamp values.
 
-- `not_uploaded`: no avatar intent has been created.
-- `pending_upload`: metadata passed validation and an object key is reserved.
-- `ready`: reserved for the later Lambda-completed flow.
-- `failed`: reserved for a later upload or processing failure.
-
-This phase writes only `pending_upload`. Existing users receive
-`not_uploaded` through the column default. Registration remains compatible
-because the new columns do not need to appear in the current insert.
-
-The repository will contain a forward migration and a documented rollback.
-The application must never run `ALTER TABLE` automatically.
-
-## User And Session Types
-
-`AuthUserRecord` and `AuthSessionUser` gain:
+`AuthUserRecord` and `AuthSessionUser` expose:
 
 ```ts
 avatarKey: string | null;
@@ -89,16 +56,45 @@ avatarStatus: AvatarStatus;
 avatarUpdatedAt: string | null;
 ```
 
-`findUserByEmail()` and `findUserById()` select and map the new columns.
-`getAuthSession()` continues to load the user from MySQL on every protected
-request, so `/profile` receives current avatar metadata without changing the
-signed cookie payload.
+Unknown database status values normalize to `not_uploaded`. Internal user IDs
+and object keys are never rendered in the profile UI.
 
-Unknown database values are mapped to `not_uploaded` rather than trusted as an
-application state. Internal user IDs and object keys are not rendered in the
-profile page.
+## Rollout-Safe User Reads
 
-## Upload-Intent API
+Core reads by email and ID first select the new avatar columns. They retry with
+the legacy column list only when MySQL reports `ER_BAD_FIELD_ERROR`/1054 and the
+error identifies one of these missing columns:
+
+- `avatar_key`
+- `avatar_status`
+- `avatar_updated_at`
+
+The fallback must not catch unrelated missing columns, connectivity failures,
+syntax errors, or other database problems. Those errors retain their normal
+failure behavior. A legacy row maps to `avatarKey: null`,
+`avatarStatus: "not_uploaded"`, and `avatarUpdatedAt: null`.
+
+This narrow fallback prevents a late migration from breaking existing login and
+session-backed routes during an automatic ECS rollout. It is a deployment
+safety net, not a replacement for applying the migration.
+
+## Migration Safety
+
+The forward migration checks each avatar column independently before adding it.
+It can therefore be rerun after either a complete migration or an interrupted
+partial run. The rollback similarly checks each column independently before
+dropping it and is repeat-safe after complete or partial execution.
+
+Existing databases should apply the forward migration before relying on avatar
+metadata. Fresh databases apply the current base schema only and must not run
+the forward migration afterward. The application never executes `ALTER TABLE`
+at runtime.
+
+Rollback remains destructive because it removes avatar metadata. It may be used
+only after the application has been rolled back to a revision that does not
+query the avatar columns.
+
+## Metadata Validation API
 
 ### Endpoint
 
@@ -114,153 +110,138 @@ profile page.
 }
 ```
 
-The request is JSON; image bytes are not included.
+The JSON body contains metadata only. Image bytes are not accepted.
 
-### Authentication
+### Authentication And Rate Limit
 
-The route calls `getAuthSession()` before accepting input. An absent session
-returns `401`. Existing auth configuration or storage failures return `503`.
-Unexpected errors are rethrown.
+The route authenticates with `getAuthSession()` before reading request input.
+No session returns `401`; recognized auth configuration or storage failures
+return `503`; unexpected errors are rethrown.
 
-### Validation
+Authenticated requests consume the `avatar-upload-intent` rate-limit bucket
+keyed by the server-side session user ID. The limit is 20 requests per 10
+minutes. A rejected request returns `429` with `Retry-After`.
 
-- `fileName` must be a non-empty string of at most 255 characters.
-- `contentType` must be `image/jpeg`, `image/png`, or `image/webp`.
-- `sizeBytes` must be an integer from 1 through 5 MiB.
-- The filename extension must agree with the declared MIME type:
+### Bounded Input
+
+The route accepts at most 8 KiB of JSON:
+
+- A valid declared `Content-Length` over 8 KiB returns `413`.
+- An invalid or ambiguous `Content-Length` returns `400`.
+- The stream is counted while being read, so an absent or understated header
+  cannot bypass the limit.
+- An actual body over 8 KiB returns `413`.
+- Malformed JSON or an aborted/failing request stream returns a controlled
+  `400`.
+
+### Metadata Rules
+
+- `fileName` is a non-empty string of at most 255 characters.
+- `contentType` is `image/jpeg`, `image/png`, or `image/webp`.
+- `sizeBytes` is an integer from 1 through 5 MiB.
+- The filename extension matches the declared MIME type:
   `.jpg`/`.jpeg`, `.png`, or `.webp`.
-- Requests with a declared `Content-Length` greater than 8 KiB return `413`.
-- Invalid metadata returns `400` with a concise user-facing error.
 
-This validation is intentionally preliminary. The later S3/Lambda phase must
-inspect actual bytes and dimensions because browser-declared metadata is not
-a security boundary.
+This validation is preliminary. Browser-declared metadata is not a security
+boundary; the later S3 processing flow must inspect actual bytes.
 
-### Rate Limit
+### Dry-Run Response
 
-The existing in-memory rate limiter uses an `avatar-upload-intent` bucket keyed
-by authenticated user ID. The limit is 20 intents per 10 minutes. A rejected
-request returns `429` and `Retry-After`.
-
-### Object Key
-
-After validation, the route creates:
-
-```text
-avatars/originals/<user-id>/<uuid>.<normalized-extension>
-```
-
-The user ID is taken only from the authenticated server session. Client input
-cannot choose the user segment or object key.
-
-### Persistence And Response
-
-The route updates only the authenticated user's row:
-
-```sql
-UPDATE users
-SET avatar_key = ?, avatar_status = 'pending_upload', avatar_updated_at = ?
-WHERE id = ?
-```
-
-A successful response is `201`:
+Valid metadata returns `200` with exactly:
 
 ```json
 {
-  "avatar": {
-    "status": "pending_upload",
-    "updatedAt": "2026-07-26T09:00:00.000Z"
+  "validation": {
+    "status": "ready_for_storage"
   },
-  "message": "头像文件已通过校验，S3 存储将在下一阶段接入"
+  "message": "头像信息已通过校验，图片尚未上传或保存"
 }
 ```
 
-The response does not expose the internal object key. If the user row cannot
-be updated, the route returns `404`; storage/configuration errors return
-`503`.
+`ready_for_storage` describes validation readiness only. The route does not
+generate an object key, update MySQL, change `avatar_status`, or return a
+missing-user `404` path. A standalone object-key helper may exist in the
+repository for the next phase, but the current route does not import or invoke
+it.
 
 ## Profile UI
 
-The static placeholder in `ProfileView` is replaced by a focused client
-component, `AvatarUploadControl`.
+`AvatarUploadControl`:
 
-The control:
-
-- Uses a file input restricted to JPEG, PNG, and WebP.
-- Shows the selected image through a temporary local object URL.
-- Performs the same basic MIME/size checks before making a request.
+- Accepts JPEG, PNG, and WebP selection.
+- Shows a temporary local preview labelled `本地预览，尚未保存`.
+- Performs the same basic metadata checks before requesting the API.
 - Sends only `fileName`, `file.type`, and `file.size`.
-- Shows `准备中`, `正在校验`, `待接入 S3`, or an error message.
-- Disables duplicate submissions while a request is pending.
-- Revokes old object URLs when selection changes or the component unmounts.
-- Clearly says that the image has not yet been stored.
+- Shows `待接入 S3` after the exact dry-run success response.
+- Displays the exact message
+  `头像信息已通过校验，图片尚未上传或保存`.
+- Never claims the file or avatar was uploaded or saved.
+- Prevents duplicate submission after success until a new file is selected.
+- Aborts an in-flight request on unmount and revokes stale object URLs.
 
-The existing avatar initial remains the fallback. A local preview is labelled
-as a preview and must not be presented as the saved account avatar.
+The existing avatar initial remains visible as the account-avatar fallback.
+The local preview is not presented as a persisted account avatar.
 
 ## Error Handling
 
-- Invalid local selection: no request; show the validation message.
-- `400`: show the API validation message.
-- `401`: tell the user the session expired and provide the existing auth path.
-- `429`: show a retry-later message.
-- `503`: show that avatar preparation is temporarily unavailable.
-- Network or malformed-response failure: show a generic retry message.
-
-Errors do not remove the existing avatar initial or account details.
+- Invalid local selection: do not call the API; show validation feedback.
+- `400`: show the controlled validation or request-body error.
+- `401`: report expiration and expose the existing login path.
+- `429`: ask the user to retry later.
+- `503`: report temporary avatar-service unavailability.
+- Malformed API response or network failure: show a generic retry message.
+- Aborted component request: do not display a stale failure.
 
 ## Testing
 
-### Data and validation
+### Database And Migration
 
-- Maps nullable avatar columns and known statuses.
-- Maps unknown statuses to `not_uploaded`.
-- Persists a pending upload only for the supplied authenticated user ID.
-- Accepts valid JPEG, PNG, and WebP metadata.
-- Rejects empty/long names, unsupported MIME types, mismatched extensions,
-  zero bytes, non-integers, and files above 5 MiB.
+- Map present, nullable, and unknown avatar values.
+- Try the avatar-aware read first.
+- Fall back only for error 1054 naming an avatar column.
+- Never fall back for unrelated database failures or unrelated missing columns.
+- Verify forward and rollback SQL guards for complete, repeated, and partial
+  states.
 
 ### API
 
-- Returns `401` without a session.
-- Returns `400` for invalid metadata.
-- Returns `413` for an oversized JSON request declaration.
-- Returns `429` with `Retry-After` when throttled.
-- Returns `201` and persists a server-generated key for valid metadata.
-- Does not return the key or internal user ID.
-- Returns `503` for recognized auth/database failures.
-- Rethrows unexpected errors.
+- Authenticate before reading input.
+- Enforce per-user rate limiting.
+- Enforce declared and actual 8 KiB boundaries.
+- Return controlled `400` responses for malformed JSON and failed streams.
+- Validate metadata boundaries.
+- Return the exact `200` dry-run contract.
+- Assert that the route has no persistence or object-key dependency.
 
-### UI
+### UI And Regression
 
-- Shows the current avatar status.
-- Rejects invalid files before `fetch`.
-- Sends metadata only for a valid selection.
-- Shows an honest pending-S3 success message.
-- Prevents duplicate submissions.
-- Cleans up local preview URLs.
-
-### Regression
-
-- Existing auth/session tests remain green with the new optional metadata.
-- Profile protection, workspace header, logout, lint, and production build
-  remain green.
+- Send metadata only and render the exact honest response.
+- Show `待接入 S3` without upload/save claims.
+- Clean up previews and aborted requests.
+- Keep profile protection, login, session, header, workspace, logout, CI lint,
+  production build, and Docker build behavior green.
 
 ## Deployment Sequence
 
-1. Apply the SQL migration to the target Aurora MySQL database.
-2. Deploy the application revision.
-3. Verify existing login and `/profile`.
-4. Select a valid image and confirm the user row becomes `pending_upload`.
-5. Verify no binary is stored and the UI does not claim upload completion.
+For an existing database:
 
-Deploying the application before the migration would make auth user queries
-reference missing columns, so the migration is a required pre-deployment gate.
+1. Apply the guarded forward migration using the verified-TLS command in
+   [MySQL Auth Setup](../../auth/mysql-auth-setup.md).
+2. Deploy or continue the automatic ECS rollout.
+3. Verify login and protected routes.
+4. Verify the three avatar columns, then exercise the dry-run endpoint and UI.
+
+If deployment starts before the migration completes, the narrow legacy read
+fallback keeps existing auth reads working. Operators should still apply the
+migration before any later phase relies on persisted avatar metadata.
+
+For a fresh database, apply the current
+[base schema](../../auth/mysql-auth-schema.sql) and do not run the forward
+migration afterward.
 
 ## Next Phase
 
-The S3 phase will create the bucket/CORS/IAM resources and return a presigned
-PUT URL from the same `POST /api/profile/avatar` response. The browser will
-upload directly to the reserved `avatar_key`. S3 will then trigger Lambda,
-which validates and compresses the original, writes a processed object, and
-updates the user's status to `ready` or `failed`.
+The S3 phase can use the existing types, columns, validator, and standalone key
+helper to add server-owned object-key generation, persistence, and a presigned
+upload contract. Those behaviors require a new API contract and tests; they
+must not be inferred from the current `ready_for_storage` dry run.

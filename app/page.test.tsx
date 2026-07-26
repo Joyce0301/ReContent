@@ -29,7 +29,10 @@ describe("HomePage personalized prompt request", () => {
   const user = {
     id: "user-1",
     email: "joyce@example.com",
-    displayName: "Joyce"
+    displayName: "Joyce",
+    avatarKey: null,
+    avatarStatus: "not_uploaded" as const,
+    avatarUpdatedAt: null
   };
 
   afterEach(() => {
