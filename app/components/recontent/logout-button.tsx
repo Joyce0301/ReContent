@@ -10,14 +10,10 @@ export function LogoutButton() {
   return (
     <button
       type="button"
-      className="inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white/80 px-3.5 py-2 text-xs font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] transition hover:border-slate-300 hover:text-slate-950"
+      className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200/90 bg-white/80 px-3.5 py-2 text-xs font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] transition hover:border-slate-300 hover:text-slate-950"
       onClick={() => {
         startTransition(async () => {
-          const response = await fetch("/api/auth/logout", { method: "POST" });
-
-          if (!response.ok) {
-            return;
-          }
+          await fetch("/api/auth/logout", { method: "POST" });
 
           router.push("/auth");
           router.refresh();
