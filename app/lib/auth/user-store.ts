@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { RowDataPacket } from "mysql2/promise";
-import { normalizeAvatarStatus } from "../avatar/types";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { normalizeAvatarStatus, type AvatarStatus } from "../avatar/types";
 import { execute, queryOne } from "./db";
 import {
   formatMysqlUtcDatetime,
@@ -22,10 +22,26 @@ type AuthUserRow = LegacyAuthUserRow & {
   avatar_updated_at: Date | string | null;
 };
 
-type AvatarMetadataRow = Pick<
+type AvatarMetadataRow = RowDataPacket & Pick<
   AuthUserRow,
   "avatar_key" | "avatar_status" | "avatar_updated_at"
 >;
+
+export type AvatarUploadState = {
+  key: string | null;
+  status: AvatarStatus;
+  updatedAt: string | null;
+};
+
+async function didAffectExactlyOneRow(sql: string, values: Array<string | null>) {
+  const [result] = await execute(sql, values);
+  return (result as ResultSetHeader).affectedRows === 1;
+}
+
+async function acquireLeaseToken(sql: string, values: string[], token: string) {
+  const [result] = await execute(sql, values);
+  return (result as ResultSetHeader).affectedRows === 1 ? token : null;
+}
 
 function mapUserRow(
   row: LegacyAuthUserRow | null,
@@ -111,6 +127,135 @@ export async function findUserByEmail(email: string) {
 
 export async function findUserById(id: string) {
   return findUserByColumn("id", id);
+}
+
+export async function getAvatarUploadState(
+  userId: string
+): Promise<AvatarUploadState | null> {
+  const row = await queryOne<AvatarMetadataRow>(
+    `SELECT avatar_key, avatar_status, avatar_updated_at
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+    [userId]
+  );
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    key: row.avatar_key,
+    status: normalizeAvatarStatus(row.avatar_status),
+    updatedAt: row.avatar_updated_at
+      ? (
+          typeof row.avatar_updated_at === "string"
+            ? parseMysqlUtcDatetime(row.avatar_updated_at)
+            : row.avatar_updated_at
+        ).toISOString()
+      : null
+  };
+}
+
+export async function reserveAvatarUpload(input: {
+  userId: string;
+  stagingKey: string;
+}): Promise<boolean> {
+  return didAffectExactlyOneRow(
+    `UPDATE users
+     SET avatar_key = ?,
+         avatar_status = 'pending_upload',
+         avatar_confirmation_token = NULL,
+         avatar_updated_at = UTC_TIMESTAMP()
+     WHERE id = ?
+       AND (
+         avatar_status IN ('not_uploaded', 'failed')
+         OR (
+           avatar_status = 'pending_upload'
+           AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+         )
+       )`,
+    [input.stagingKey, input.userId]
+  );
+}
+
+export async function acquireAvatarConfirmationLease(input: {
+  userId: string;
+  stagingKey: string;
+}): Promise<string | null> {
+  const token = randomUUID();
+
+  return acquireLeaseToken(
+    `UPDATE users
+     SET avatar_status = 'confirming',
+         avatar_confirmation_token = ?,
+         avatar_updated_at = UTC_TIMESTAMP()
+     WHERE id = ?
+       AND avatar_key = ?
+       AND (
+         avatar_status = 'pending_upload'
+         OR (
+           avatar_status = 'confirming'
+           AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 30 SECOND
+         )
+       )`,
+    [token, input.userId, input.stagingKey],
+    token
+  );
+}
+
+export async function completeAvatarConfirmation(input: {
+  userId: string;
+  stagingKey: string;
+  confirmedKey: string;
+  leaseToken: string;
+}): Promise<boolean> {
+  return didAffectExactlyOneRow(
+    `UPDATE users
+     SET avatar_key = ?,
+         avatar_status = 'uploaded',
+         avatar_confirmation_token = NULL,
+         avatar_updated_at = UTC_TIMESTAMP()
+     WHERE id = ?
+       AND avatar_key = ?
+       AND avatar_status = 'confirming'
+       AND avatar_confirmation_token = ?`,
+    [input.confirmedKey, input.userId, input.stagingKey, input.leaseToken]
+  );
+}
+
+export async function failPendingAvatarUpload(input: {
+  userId: string;
+  stagingKey: string;
+}): Promise<boolean> {
+  return didAffectExactlyOneRow(
+    `UPDATE users
+     SET avatar_status = 'failed',
+         avatar_confirmation_token = NULL,
+         avatar_updated_at = UTC_TIMESTAMP()
+     WHERE id = ?
+       AND avatar_key = ?
+       AND avatar_status = 'pending_upload'`,
+    [input.userId, input.stagingKey]
+  );
+}
+
+export async function failAvatarConfirmation(input: {
+  userId: string;
+  stagingKey: string;
+  leaseToken: string;
+}): Promise<boolean> {
+  return didAffectExactlyOneRow(
+    `UPDATE users
+     SET avatar_status = 'failed',
+         avatar_confirmation_token = NULL,
+         avatar_updated_at = UTC_TIMESTAMP()
+     WHERE id = ?
+       AND avatar_key = ?
+       AND avatar_status = 'confirming'
+       AND avatar_confirmation_token = ?`,
+    [input.userId, input.stagingKey, input.leaseToken]
+  );
 }
 
 export async function createUser(input: {
