@@ -21,6 +21,8 @@
 - Confirmed keys are `original/confirmed/{userId}/{uploadId}.{extension}`.
 - Every copy signs both `CopySourceIfMatch=<staging-etag>` and destination `IfNoneMatch="*"`.
 - All state timing uses MySQL `UTC_TIMESTAMP()`, never ECS task time.
+- Every confirmation lease has a fresh server-only UUID token; terminal
+  `confirming` writes must match that token and clear it.
 - Keep the bucket private; no public ACL, public bucket policy, or public object URL.
 - AWS SDK code is server-only and must not enter the browser bundle.
 - The existing process-local limiter is best-effort; database state and S3 lifecycle are the storage-abuse boundaries.
@@ -48,6 +50,10 @@
 - `scripts/verify-avatar-s3-prerequisites.test.ts`: preflight parsing and rejection tests.
 - `docs/auth/avatar-s3-smoke-test.md`: authenticated post-deploy compatibility,
   immutability, and idempotency smoke procedure.
+- `docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.sql`:
+  idempotent nullable lease-token migration.
+- `docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.rollback.sql`:
+  guarded rollback for the lease-token column.
 
 **Modify**
 
@@ -55,6 +61,8 @@
 - `app/lib/avatar/types.ts`, `app/lib/avatar/types.test.ts`: `confirming` and `uploaded`.
 - `app/lib/avatar/object-key.ts`, `app/lib/avatar/object-key.test.ts`: pending/confirmed key helpers and parser.
 - `app/lib/auth/user-store.ts`, `app/lib/auth/user-store.test.ts`: conditional state writes and state read.
+- `docs/auth/mysql-auth-schema.sql`: include the nullable confirmation token in
+  fresh schemas.
 - `app/profile/avatar-upload-control.tsx`: add only exhaustive labels for the two statuses.
 - `app/profile/avatar-upload-control.test.tsx`: assert labels without changing dry-run flow.
 - `app/api/profile/avatar/route.ts`, `app/api/profile/avatar/route.test.ts`: reuse bounded reader with unchanged responses.
@@ -230,6 +238,9 @@ git commit -m "refactor: prepare avatar upload boundaries"
 **Files:**
 - Modify: `app/lib/auth/user-store.ts`
 - Modify: `app/lib/auth/user-store.test.ts`
+- Modify: `docs/auth/mysql-auth-schema.sql`
+- Create: `docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.sql`
+- Create: `docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.rollback.sql`
 
 **Interfaces:**
 - Produces:
@@ -253,17 +264,24 @@ export async function reserveAvatarUpload(input: {
 export async function acquireAvatarConfirmationLease(input: {
   userId: string;
   stagingKey: string;
-}): Promise<boolean>;
+}): Promise<string | null>;
 
 export async function completeAvatarConfirmation(input: {
   userId: string;
   stagingKey: string;
   confirmedKey: string;
+  leaseToken: string;
+}): Promise<boolean>;
+
+export async function failPendingAvatarUpload(input: {
+  userId: string;
+  stagingKey: string;
 }): Promise<boolean>;
 
 export async function failAvatarConfirmation(input: {
   userId: string;
   stagingKey: string;
+  leaseToken: string;
 }): Promise<boolean>;
 ```
 
@@ -280,7 +298,14 @@ OR (
 ```
 
 Lease acquisition must accept `pending_upload` or a `confirming` row at least
-30 seconds old, and must assign `avatar_updated_at = UTC_TIMESTAMP()`.
+30 seconds old, assign a fresh `randomUUID()` token, and assign
+`avatar_updated_at = UTC_TIMESTAMP()`. Tests must prove the returned token is
+the value used by SQL only when exactly one row changes; zero or multiple rows
+return `null`.
+
+Terminal-write tests must model owner A acquiring, owner B reacquiring with a
+new token, and owner A's completion/failure affecting zero rows because its
+token no longer matches.
 
 - [ ] **Step 2: Run the state tests and verify RED**
 
@@ -288,31 +313,51 @@ Lease acquisition must accept `pending_upload` or a `confirming` row at least
 npx vitest run app/lib/auth/user-store.test.ts
 ```
 
-Expected: fail because the five exported functions do not exist.
+Expected: fail because the six exported functions do not exist.
 
 - [ ] **Step 3: Implement affected-row helpers and state read**
 
 Read `ResultSetHeader.affectedRows` from the first `execute()` tuple item.
-Return `true` only for exactly one affected row. Never treat zero rows as
-success.
+Boolean transitions return `true` only for exactly one affected row. Lease
+acquisition returns its generated token only for exactly one affected row and
+otherwise returns `null`. Never treat zero or multiple rows as success.
 
-- [ ] **Step 4: Implement the four conditional writes**
+- [ ] **Step 4: Implement the five conditional writes**
 
-Use parameterized SQL. Completion must use:
+Use parameterized SQL. Reservation clears `avatar_confirmation_token`.
+Completion clears the token and must use:
 
 ```sql
 WHERE id = ?
   AND avatar_key = ?
   AND avatar_status = 'confirming'
+  AND avatar_confirmation_token = ?
 ```
 
-Failure must use the same user/key binding and:
+Pending failure must use the same user/key binding and:
 
 ```sql
-avatar_status IN ('pending_upload', 'confirming')
+avatar_status = 'pending_upload'
 ```
 
-- [ ] **Step 5: Verify state and existing auth regressions**
+Leased failure clears the token and must use:
+
+```sql
+avatar_status = 'confirming'
+AND avatar_confirmation_token = ?
+```
+
+- [ ] **Step 5: Add the backward-compatible migration**
+
+Add `avatar_confirmation_token CHAR(36) NULL` to the base schema after
+`avatar_updated_at`. Create independently guarded, rerunnable forward and
+rollback migration files following the existing avatar migration style.
+Existing ECS revisions must remain valid because they do not read this nullable
+column. The column may remain indefinitely. The rollback migration must not run
+until every deployed revision that references it has been drained and the
+application rollback is verified stable.
+
+- [ ] **Step 6: Verify state and existing auth regressions**
 
 ```bash
 npx vitest run \
@@ -324,10 +369,15 @@ npx vitest run \
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add app/lib/auth/user-store.ts app/lib/auth/user-store.test.ts
+git add \
+  app/lib/auth/user-store.ts \
+  app/lib/auth/user-store.test.ts \
+  docs/auth/mysql-auth-schema.sql \
+  docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.sql \
+  docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.rollback.sql
 git commit -m "feat: add avatar upload state transitions"
 ```
 
@@ -579,11 +629,13 @@ Cover:
 
 - malformed/cross-user key rejected before DB/S3
 - same deterministic confirmed key already `uploaded` -> idempotent success
-- `pending_upload` -> head staging -> acquire lease -> conditional copy -> complete
-- lease CAS loss -> fresh state read -> success only for matching uploaded key
+- `pending_upload` -> head staging -> acquire tokenized lease -> conditional copy -> token-matched complete
+- lease CAS loss -> fresh state read -> success only for matching uploaded key,
+  with no copy, complete, or failure call
 - fresh `confirming` lease -> `IN_PROGRESS`
-- stale `confirming` lease reacquired atomically
-- stale recovery with valid confirmed object -> complete without copy
+- stale `confirming` lease reacquired atomically with a fresh token
+- stale recovery with valid confirmed object -> token-matched complete without copy
+- stale owner completion/failure after reacquisition -> lost CAS and no state mutation
 - source ETag change / source 412 with no confirmed object -> conditional failure
 - destination 412 or 409 with valid confirmed object -> complete without overwrite
 - destination 409 with no confirmed object -> `IN_PROGRESS`
@@ -606,20 +658,36 @@ its affected-row result to decide whether recovery owns the lease.
 
 Use these explicit branches and ordering:
 
-- `pending_upload`: `HeadObject` staging, validate metadata and nonblank ETag,
-  acquire the lease, then conditionally copy.
+- `pending_upload`: `HeadObject` staging, validate metadata and nonblank ETag;
+  invalid metadata uses `failPendingAvatarUpload`. Otherwise acquire and retain
+  the lease token. If acquisition returns `null`, stop before copy, read fresh
+  state, and return success only for the matching uploaded key or else return
+  `IN_PROGRESS`. If acquisition returns a token, proceed to the conditional
+  copy with that token.
 - fresh `confirming`: return `IN_PROGRESS` without touching S3.
-- stale `confirming`: reacquire the lease first, then `HeadObject` confirmed; if
-  absent, `HeadObject` and validate staging before conditionally copying.
+- stale `confirming`: reacquire and retain a fresh lease token first, then
+  `HeadObject` confirmed. If reacquisition returns `null`, stop before all S3
+  and terminal writes, read fresh state, and return success only for the
+  matching uploaded key; otherwise return `IN_PROGRESS`. If reacquisition
+  succeeds and confirmed is absent, `HeadObject` and validate staging before
+  conditionally copying.
 - matching `uploaded`: return idempotent success without touching S3.
 - stale `confirming` with both confirmed and staging absent: conditionally mark
-  the upload failed only while still owning the same lease.
+  the upload failed only while still owning the same lease token.
 
 - [ ] **Step 4: Implement copy and recovery**
 
 The only copy call must receive both the observed staging ETag and deterministic
 confirmed key. After any destination precondition/conflict error, only
 `HeadObject` the confirmed key; never issue an unconditional copy.
+
+Every completion and every failure after lease acquisition must pass the same
+token returned by `acquireAvatarConfirmationLease`. A lost terminal CAS causes
+a fresh state read; it must never be treated as unconditional success or retry
+with a token not acquired by that request.
+
+Tests must assert that a `null` acquire/reacquire result causes zero
+`CopyObject`, completion, pending-failure, and leased-failure calls.
 
 - [ ] **Step 5: Write failing route tests**
 
@@ -752,6 +820,8 @@ Include new route, avatar, HTTP, auth-store, and preflight tests. Document:
 
 - ECS-only runtime
 - task role vs execution role
+- required nullable `avatar_confirmation_token` migration and token-fenced
+  lease behavior
 - required prefix-restricted `s3:ListBucket`
 - `BucketOwnerEnforced` and default `AES256` SSE-S3
 - POST CORS
@@ -852,8 +922,24 @@ not break the existing Cloudflare/OpenNext target.
 
 - [ ] **Step 3: Run the AWS preflight against the live prerequisites**
 
-After the user has added POST CORS, one-day pending lifecycle, prefix-restricted
-`s3:ListBucket`, and deploy-role read permissions:
+Before the AWS preflight, apply
+`docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.sql` to the
+production database and verify:
+
+```sql
+SELECT column_name, column_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'users'
+  AND column_name = 'avatar_confirmation_token';
+```
+
+Expected: one `char(36)` nullable column. This database migration is a hard
+gate before merging because the deployment workflow publishes code
+automatically.
+
+After the migration, the user has added POST CORS, one-day pending lifecycle,
+prefix-restricted `s3:ListBucket`, and deploy-role read permissions:
 
 ```bash
 AWS_REGION=us-east-1 \
@@ -885,9 +971,9 @@ and Important findings, then rerun Steps 1–3.
 - [ ] **Step 5: Independent adversarial review**
 
 Dispatch a separate adversarial subagent focused on POST replay, destination
-overwrite, stale lease, DB/S3 split recovery, cross-user keys, AWS error
-redaction, and rolling deployment compatibility. Fix all Critical and Important
-findings, then rerun Steps 1–3.
+overwrite, token-fenced stale lease ownership, DB/S3 split recovery, cross-user
+keys, AWS error redaction, and rolling deployment compatibility. Fix all
+Critical and Important findings, then rerun Steps 1–3.
 
 - [ ] **Step 6: Create PR A**
 

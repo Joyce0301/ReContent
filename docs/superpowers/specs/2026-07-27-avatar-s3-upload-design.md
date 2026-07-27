@@ -109,19 +109,26 @@ metadata:
 - `image/webp` -> `webp`
 
 The client cannot supply a key, user ID, prefix, or upload ID when requesting an
-upload intent. The existing helper that emits `avatars/originals/...` will be
-replaced with helpers for the two deployed `original/` prefixes. A confirmed key
-is derived only from a syntactically valid staging key owned by the session user.
+upload intent. The existing helper that emits `avatars/originals/...` remains as
+a compatibility export while new helpers produce the two deployed `original/`
+prefixes. A confirmed key is derived only from a syntactically valid staging key
+owned by the session user.
 
 ## Database State
 
-The existing columns remain sufficient:
+Add one nullable internal lease-fencing column:
 
 ```sql
 avatar_key VARCHAR(512) NULL
 avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded'
 avatar_updated_at DATETIME NULL
+avatar_confirmation_token CHAR(36) NULL
 ```
+
+`avatar_confirmation_token` is an opaque server-generated UUID. It is never
+returned to the browser and is not used as a clock. Existing ECS revisions
+ignore the nullable column, so the migration is backward-compatible and must be
+applied before deploying code that references it.
 
 The application status union adds `confirming` and `uploaded`:
 
@@ -150,20 +157,29 @@ Database writes use conditional updates:
 
 - `reserveAvatarUpload(userId, stagingKey)` updates only a user in
   `not_uploaded`, `failed`, or `pending_upload` whose DB timestamp is at least
-  five minutes old; zero affected rows maps to `409`.
-- `acquireAvatarConfirmationLease(userId, stagingKey)` atomically changes the
+  five minutes old, and clears any previous confirmation token; zero affected
+  rows maps to `409`.
+- `acquireAvatarConfirmationLease(userId, stagingKey)` generates a fresh token,
+  atomically changes the
   exact current key from `pending_upload` to `confirming`, or refreshes a
   `confirming` lease only when its MySQL timestamp is at least 30 seconds old.
-  Both paths set `avatar_updated_at = UTC_TIMESTAMP()`. Zero affected rows
-  triggers a fresh state read rather than an unconditional success.
-- `completeAvatarConfirmation(userId, stagingKey, confirmedKey)` atomically
-  changes `confirming` to `uploaded` and replaces `avatar_key` with the confirmed
-  key; zero affected rows maps to `409` unless a fresh read proves the same
-  confirmed key is already `uploaded`.
-- `failAvatarConfirmation(userId, stagingKey)` conditionally changes the same
-  pending or confirming attempt to `failed`. This includes stale `confirming`
-  recovery when both the deterministic confirmed key and staging key return
-  `404`.
+  Both paths store the new token and set
+  `avatar_updated_at = UTC_TIMESTAMP()`. The function returns the token only
+  when exactly one row changes; otherwise it returns `null` and the caller
+  performs a fresh state read.
+- `completeAvatarConfirmation(userId, stagingKey, confirmedKey, leaseToken)`
+  atomically changes `confirming` to `uploaded`, replaces `avatar_key` with the
+  confirmed key, and clears the token only when the current token matches; zero
+  affected rows maps to `409` unless a fresh read proves the same confirmed key
+  is already `uploaded`.
+- `failPendingAvatarUpload(userId, stagingKey)` conditionally marks invalid
+  metadata as `failed` only before a lease exists.
+- `failAvatarConfirmation(userId, stagingKey, leaseToken)` conditionally marks
+  a leased attempt `failed` only when the current token matches. This includes
+  stale `confirming` recovery when both the deterministic confirmed key and
+  staging key return `404`.
+- A stale owner whose 30-second lease was reacquired cannot complete or fail the
+  newer lease generation because its token no longer matches.
 - Repeating confirmation for a staging key whose deterministic confirmed key is
   already current in `uploaded` state returns `200` without contacting S3.
 - A stale key from an older intent cannot advance the current state.
@@ -279,8 +295,17 @@ by the authenticated user. State branching is exact:
   conditional copy if it does not exist.
 - Any other key or state: return `409` before S3.
 
-For an eligible pending or stale-confirming key, it calls `HeadObject` and
-verifies:
+The two eligible states deliberately use different ordering:
+
+- `pending_upload`: call `HeadObject` on staging and validate it first. If valid,
+  acquire the lease token and only then copy.
+- stale `confirming`: reacquire a fresh lease token first, then call
+  `HeadObject` on the deterministic confirmed key. If confirmed exists and is
+  valid, finish the token-matched DB transition without copying. Only when
+  confirmed is absent may recovery inspect staging and retry the conditional
+  copy.
+
+Staging metadata validation verifies:
 
 - the object exists
 - `ContentLength` is an integer from 1 through 5 MiB
@@ -288,26 +313,33 @@ verifies:
 - the content type agrees with the key extension
 - `ETag` is present
 
-If verification passes, the route atomically acquires or reacquires the
-`confirming` lease, then calls `CopyObject` from staging to the deterministic
-confirmed key with `CopySourceIfMatch` set to the observed ETag and destination
-`IfNoneMatch="*"`. A source precondition failure proves the staging object
-changed after inspection and marks the attempt `failed`. A destination `412` or
-concurrent-write `409` triggers `HeadObject` on the confirmed key; if that
-write-once object exists with valid metadata, recovery completes only the
-database transition and never copies over it.
+If lease acquisition or reacquisition returns `null`, the request stops before
+`CopyObject`, performs a fresh state read, and returns success only when the
+same deterministic confirmed key is already `uploaded`; otherwise it returns
+`409`. It never copies, completes, or fails without a token acquired by that
+request.
+
+With a valid token and valid staging metadata, the route calls `CopyObject` from
+staging to the deterministic confirmed key with `CopySourceIfMatch` set to the
+observed ETag and destination `IfNoneMatch="*"`. A source precondition failure
+proves the staging object changed after inspection and marks the attempt
+`failed` only with the same token. A destination `412` or concurrent-write
+`409` triggers `HeadObject` on the confirmed key; if that write-once object
+exists with valid metadata, recovery completes only the token-matched database
+transition and never copies over it.
 
 If stale `confirming` recovery finds neither the confirmed key nor the staging
-key, `failAvatarConfirmation` uses exact user ID, staging key, and
-`confirming`-status predicates to mark the attempt `failed`. This covers a crash
-before copy followed by lifecycle deletion and prevents permanent user lockout.
+key, `failAvatarConfirmation` uses exact user ID, staging key,
+`confirming` status, and lease token predicates to mark the attempt `failed`.
+This covers a crash before copy followed by lifecycle deletion without letting
+an expired owner mutate a newer lease.
 
 After a successful copy, `completeAvatarConfirmation` atomically stores the
-confirmed key, advances the state to `uploaded`, and refreshes
-`avatar_updated_at`. A retry in `confirming` first checks the confirmed key; if
-it exists with valid metadata, it completes the database transition. A retry
-may perform that recovery only after the 30-second lease is stale. Otherwise it
-repeats the ETag-bound staging check and copy.
+confirmed key, advances the state to `uploaded`, clears the token, and refreshes
+`avatar_updated_at` only when its lease token still matches. A retry in
+`confirming` first reacquires the stale lease and then checks the confirmed key;
+if it exists with valid metadata, it completes the database transition with
+the new token. Otherwise it repeats the ETag-bound staging check and copy.
 
 ### Responses
 
@@ -486,6 +518,8 @@ the status to `ready` and supplies a processed delivery path.
 - Conditional `pending_upload -> confirming -> uploaded` database updates
   and the 30-second confirmation lease prevent concurrent finalization races
   and recover from copy/database splits.
+- Every acquired or reacquired lease has a fresh opaque token; terminal writes
+  from an expired owner affect zero rows after a newer token is installed.
 - Intent expiry and confirmation-lease tests use mocked DB results/SQL and
   assert `UTC_TIMESTAMP()`-based comparisons rather than application clocks.
 - Repeated confirmation of the staging key derives the same confirmed key and is
@@ -517,28 +551,33 @@ the status to `ready` and supplies a processed delivery path.
 
 ## Deployment Sequence
 
-1. Add prefix-restricted `s3:ListBucket` to the ECS task role.
-2. Add a one-day lifecycle expiration for `original/pending/`.
-3. Change bucket CORS from `PUT` to `POST` for the exact production origin.
-4. Grant the GitHub deploy role the read-only AWS permissions required by the
+1. Apply the idempotent nullable `avatar_confirmation_token` migration and
+   verify the column exists before merging PR A.
+2. Add prefix-restricted `s3:ListBucket` to the ECS task role.
+3. Add a one-day lifecycle expiration for `original/pending/`.
+4. Change bucket CORS from `PUT` to `POST` for the exact production origin.
+5. Grant the GitHub deploy role the read-only AWS permissions required by the
    preflight.
-5. Run the preflight against the current PRIMARY task definition and bucket.
-6. Merge PR A and verify the additive backend deployment while the old UI
+6. Run the preflight against the current PRIMARY task definition and bucket.
+7. Merge PR A and verify the additive backend deployment while the old UI
    remains unchanged.
-7. Exercise upload-intent and confirmation with authenticated API tests.
-8. Merge PR B and verify login and the profile page.
-9. Upload a small test image and confirm:
+8. Exercise upload-intent and confirmation with authenticated API tests.
+9. Merge PR B and verify login and the profile page.
+10. Upload a small test image and confirm:
    - staging uses `original/pending/{userId}/`
    - confirmation creates `original/confirmed/{userId}/`
    - database status becomes `uploaded` and stores only the confirmed key
    - the confirmed original remains private
    - the UI does not claim the final avatar is ready
-10. Verify invalid type, oversized POST, replayed staging upload, stale key, and
+11. Verify invalid type, oversized POST, replayed staging upload, stale key, and
     repeated confirmation behavior.
 
 Rollback the application before removing its S3 variables or task-role
-permissions. Existing uploaded originals may remain private in S3 during a
-rollback.
+permissions. Leave the nullable `avatar_confirmation_token` column in place
+while any PR A task can still serve traffic. The column may remain indefinitely;
+run its rollback migration only after all deployed revisions that reference it
+have been drained and the application rollback is verified stable. Existing
+uploaded originals may remain private in S3 during a rollback.
 
 ## Next Phase
 
