@@ -9,7 +9,7 @@ export type AvatarS3Config = {
 
 export function getAvatarS3Config(): AvatarS3Config {
   const bucket = process.env.AVATAR_S3_BUCKET;
-  const region = process.env.AVATAR_S3_REGION;
+  const region = process.env.AWS_REGION;
 
   if (!bucket?.trim() || !region?.trim()) {
     throw new AvatarStorageConfigurationError();

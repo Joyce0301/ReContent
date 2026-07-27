@@ -12,6 +12,9 @@ const aws = vi.hoisted(() => ({
   }
 }));
 
+const originalBucket = process.env.AVATAR_S3_BUCKET;
+const originalRegion = process.env.AWS_REGION;
+
 vi.mock("server-only", () => ({}));
 
 vi.mock("@aws-sdk/s3-presigned-post", () => ({
@@ -32,7 +35,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 
 beforeEach(() => {
   process.env.AVATAR_S3_BUCKET = "bucket";
-  process.env.AVATAR_S3_REGION = "us-east-1";
+  process.env.AWS_REGION = "us-east-1";
   aws.createPresignedPost.mockResolvedValue({
     url: "https://bucket.s3.amazonaws.com",
     fields: { key: "original/pending/user-1/upload-1.webp" }
@@ -40,8 +43,17 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.AVATAR_S3_BUCKET;
-  delete process.env.AVATAR_S3_REGION;
+  if (originalBucket === undefined) {
+    delete process.env.AVATAR_S3_BUCKET;
+  } else {
+    process.env.AVATAR_S3_BUCKET = originalBucket;
+  }
+
+  if (originalRegion === undefined) {
+    delete process.env.AWS_REGION;
+  } else {
+    process.env.AWS_REGION = originalRegion;
+  }
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.resetModules();
