@@ -14,7 +14,8 @@
 - Avatar storage is ECS-only in this phase; Cloudflare/OpenNext receives a
   controlled `503` from the new endpoints when task-role storage is unavailable.
 - Keep `POST /api/profile/avatar` and its exact dry-run contract available.
-- Use `AVATAR_S3_BUCKET` and `AVATAR_S3_REGION`; never add static AWS access keys.
+- Use `AVATAR_S3_BUCKET` and the standard SDK variable `AWS_REGION`; never add
+  static AWS access keys.
 - Presigned POST lifetime is 300 seconds.
 - Accepted files are `image/jpeg`, `image/png`, and `image/webp`, from 1 byte through 5 MiB.
 - Staging keys are `original/pending/{userId}/{uploadId}.{extension}`.
@@ -747,7 +748,7 @@ ECS_CLUSTER=default
 ECS_SERVICE=recontent-b13f
 ECS_CONTAINER_NAME=Main
 AVATAR_S3_BUCKET=recontent-avatar-pipeline-20260726
-AVATAR_S3_REGION=us-east-1
+EXPECTED_AVATAR_RUNTIME_REGION=us-east-1
 EXPECTED_AVATAR_TASK_ROLE_ARN=arn:aws:iam::881424867096:role/recontent-ecs-task-role
 AVATAR_TASK_ROLE_NAME=recontent-ecs-task-role
 AVATAR_TASK_POLICY_NAME=recontent-avatar-originals-access
@@ -760,8 +761,10 @@ AVATAR_ALLOWED_ORIGIN=https://re-6718725ab2374d34942ac6eee4abd640.ecs.us-east-1.
 Export parsers/validators and inject an `aws(args)` executor. Test failures for:
 
 - missing/incorrect task role
-- missing or incorrect `AVATAR_S3_BUCKET` and `AVATAR_S3_REGION` container
-  variables, checked independently from CLI `AWS_REGION`
+- missing or incorrect `AVATAR_S3_BUCKET` and `AWS_REGION` container
+  variables; compare the runtime region with
+  `EXPECTED_AVATAR_RUNTIME_REGION` rather than assuming the AWS CLI region is
+  the container configuration
 - any public-access block flag not `true`
 - object ownership not exactly `BucketOwnerEnforced`
 - missing SSE-S3 encryption or a default algorithm other than `AES256`
@@ -947,7 +950,7 @@ ECS_CLUSTER=default \
 ECS_SERVICE=recontent-b13f \
 ECS_CONTAINER_NAME=Main \
 AVATAR_S3_BUCKET=recontent-avatar-pipeline-20260726 \
-AVATAR_S3_REGION=us-east-1 \
+EXPECTED_AVATAR_RUNTIME_REGION=us-east-1 \
 EXPECTED_AVATAR_TASK_ROLE_ARN=arn:aws:iam::881424867096:role/recontent-ecs-task-role \
 AVATAR_TASK_ROLE_NAME=recontent-ecs-task-role \
 AVATAR_TASK_POLICY_NAME=recontent-avatar-originals-access \

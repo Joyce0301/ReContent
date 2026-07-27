@@ -33,7 +33,7 @@ avatar.
 - Infrastructure as code migration of the manually created AWS resources.
 - Cloudflare/OpenNext runtime support for avatar storage. Existing Cloudflare
   commands remain buildable, but this feature is enabled only by the ECS task
-  role and `AVATAR_S3_*` configuration.
+  role plus `AVATAR_S3_BUCKET` and `AWS_REGION` configuration.
 
 ## Chosen Upload Mechanism
 
@@ -76,7 +76,7 @@ This phase consumes the manually configured resources in `us-east-1`:
     than an ambiguous `403`
 - ECS environment:
   - `AVATAR_S3_BUCKET=recontent-avatar-pipeline-20260726`
-  - `AVATAR_S3_REGION=us-east-1`
+  - `AWS_REGION=us-east-1`
 
 Before UI deployment, bucket CORS must allow `POST` from the exact ReContent
 production origin. `PUT` is not required by this design. A lifecycle rule must
@@ -86,8 +86,9 @@ staging uploads cannot accumulate indefinitely.
 No static AWS access keys are stored in the application. The AWS SDK uses the
 ECS task-role credential provider. A repo-owned AWS preflight script runs in the
 deploy workflow after OIDC credential setup and fails deployment unless the
-current task definition has the expected task role and both `AVATAR_S3_*`
-variables, and the bucket has public access blocked, POST CORS, and pending-key
+current task definition has the expected task role, `AVATAR_S3_BUCKET`, and
+the standard SDK `AWS_REGION` variable, and the bucket has public access
+blocked, POST CORS, and pending-key
 lifecycle cleanup. The GitHub deploy role must receive only the read permissions
 needed by that preflight.
 
@@ -367,7 +368,7 @@ later Lambda processor validates and decodes them.
 Server-only configuration validates:
 
 - `AVATAR_S3_BUCKET` is present and non-empty.
-- `AVATAR_S3_REGION` is present and non-empty.
+- `AWS_REGION` is present and non-empty.
 
 Missing configuration raises a typed avatar-storage configuration error that
 the two API routes map to `503`. It must not affect login, sessions, workspace,
