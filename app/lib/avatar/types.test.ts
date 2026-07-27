@@ -5,6 +5,8 @@ describe("normalizeAvatarStatus", () => {
   it.each([
     "not_uploaded",
     "pending_upload",
+    "confirming",
+    "uploaded",
     "ready",
     "failed"
   ] as const)("keeps the known status %s", (status) => {

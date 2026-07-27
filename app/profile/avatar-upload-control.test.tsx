@@ -64,6 +64,8 @@ describe("AvatarUploadControl", () => {
   it.each([
     ["not_uploaded", "尚未上传"],
     ["pending_upload", "待接入 S3"],
+    ["confirming", "正在确认上传"],
+    ["uploaded", "原图已上传，等待处理"],
     ["ready", "头像已就绪"],
     ["failed", "上次准备失败"]
   ] as const)(
