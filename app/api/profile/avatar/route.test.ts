@@ -43,7 +43,8 @@ vi.mock("../../../lib/avatar/object-key", () => ({
   createAvatarObjectKey: (() => {
     objectKeyModuleLoaded.value = true;
     return vi.fn();
-  })()
+  })(),
+  createAvatarObjectKeys: vi.fn()
 }));
 
 vi.mock("../../../lib/avatar/validation", () => ({

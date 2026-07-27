@@ -17,6 +17,23 @@ function assertSafeSegment(segment: string) {
   }
 }
 
+export function createAvatarObjectKey(input: {
+  userId: string;
+  extension: "jpg" | "png" | "webp";
+  id?: string;
+}) {
+  const id = input.id ?? randomUUID();
+
+  assertSafeSegment(input.userId);
+  assertSafeSegment(id);
+
+  if (!AVATAR_EXTENSIONS.has(input.extension)) {
+    throw new Error("Avatar extension must be jpg, png, or webp");
+  }
+
+  return `avatars/originals/${input.userId}/${id}.${input.extension}`;
+}
+
 export function createAvatarObjectKeys(input: {
   userId: string;
   extension: "jpg" | "png" | "webp";

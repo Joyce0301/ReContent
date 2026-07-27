@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  createAvatarObjectKey,
   createAvatarObjectKeys,
   parseAvatarStagingKey
 } from "./object-key";
+
+describe("createAvatarObjectKey", () => {
+  it("preserves the legacy user-scoped object key format", () => {
+    expect(
+      createAvatarObjectKey({
+        userId: "user-1",
+        extension: "webp",
+        id: "file-id"
+      })
+    ).toBe("avatars/originals/user-1/file-id.webp");
+  });
+});
 
 describe("createAvatarObjectKeys", () => {
   it("creates paired user-scoped object keys from a supplied test id", () => {
