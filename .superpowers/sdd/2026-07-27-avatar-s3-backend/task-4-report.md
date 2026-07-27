@@ -24,7 +24,7 @@ this report).
   auth, DB storage, S3 configuration, and S3 availability failures to the same
   fixed Chinese `503`.
 - Object keys use only `session.user.id`; request-provided user identifiers are
-  ignored by the validator and never used to generate or reserve keys.
+  rejected by validation and never used to generate or reserve keys.
 - `confirming` and `uploaded` return `409` before key generation or presigning.
   A missing user state also fails safely with a generic `409`.
 - `pending_upload` proceeds to `reserveAvatarUpload`; MySQL's conditional update
