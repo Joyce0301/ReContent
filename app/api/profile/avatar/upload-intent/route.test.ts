@@ -127,7 +127,8 @@ beforeEach(() => {
   getAvatarUploadStateMock.mockResolvedValue({
     key: null,
     status: "not_uploaded",
-    updatedAt: null
+    updatedAt: null,
+    reservationEligible: true
   });
   createAvatarObjectKeysMock.mockReturnValue(objectKeys);
   createAvatarPresignedPostMock.mockResolvedValue(upload);
@@ -135,7 +136,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 
 describe("POST /api/profile/avatar/upload-intent", () => {
@@ -210,7 +211,8 @@ describe("POST /api/profile/avatar/upload-intent", () => {
       getAvatarUploadStateMock.mockResolvedValueOnce({
         key: objectKeys.stagingKey,
         status,
-        updatedAt: "2026-07-26T00:00:00.000Z"
+        updatedAt: "2026-07-26T00:00:00.000Z",
+        reservationEligible: false
       });
 
       const response = await POST(createRequest());
@@ -226,7 +228,8 @@ describe("POST /api/profile/avatar/upload-intent", () => {
     getAvatarUploadStateMock.mockResolvedValueOnce({
       key: "old-staging-key",
       status: "pending_upload",
-      updatedAt: "2026-07-26T00:00:00.000Z"
+      updatedAt: "2026-07-26T00:00:00.000Z",
+      reservationEligible: true
     });
     reserveAvatarUploadMock.mockResolvedValueOnce(true);
 
@@ -243,24 +246,27 @@ describe("POST /api/profile/avatar/upload-intent", () => {
     });
   });
 
-  it("returns 409 when the reservation CAS rejects a pending upload", async () => {
+  it("rejects active pending before presigning even when the presigner would fail", async () => {
     getAvatarUploadStateMock.mockResolvedValueOnce({
       key: "current-staging-key",
       status: "pending_upload",
-      updatedAt: "2026-07-27T00:00:00.000Z"
+      updatedAt: "2026-07-27T00:00:00.000Z",
+      reservationEligible: false
     });
-    reserveAvatarUploadMock.mockResolvedValueOnce(false);
+    createAvatarPresignedPostMock.mockRejectedValueOnce(
+      new Error("presigner must not run")
+    );
 
     const response = await POST(createRequest());
     const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect(reserveAvatarUploadMock).toHaveBeenCalledOnce();
     expect(body).toEqual({
       error: "当前头像状态不允许创建上传请求"
     });
-    expect(body).not.toHaveProperty("upload");
-    expect(body).not.toHaveProperty("objectKey");
+    expect(createAvatarObjectKeysMock).not.toHaveBeenCalled();
+    expect(createAvatarPresignedPostMock).not.toHaveBeenCalled();
+    expect(reserveAvatarUploadMock).not.toHaveBeenCalled();
   });
 
   it("returns a generic 409 when the session user no longer exists", async () => {
@@ -281,7 +287,8 @@ describe("POST /api/profile/avatar/upload-intent", () => {
     getAvatarUploadStateMock.mockResolvedValueOnce({
       key: "old-key",
       status: "failed",
-      updatedAt: "2026-07-26T00:00:00.000Z"
+      updatedAt: "2026-07-26T00:00:00.000Z",
+      reservationEligible: true
     });
 
     const response = await POST(createRequest());
@@ -356,6 +363,21 @@ describe("POST /api/profile/avatar/upload-intent", () => {
     });
     expect(body).not.toHaveProperty("upload");
     expect(body).not.toHaveProperty("objectKey");
+  });
+
+  it("fails closed for an unknown state even if its status resembles an available state", async () => {
+    getAvatarUploadStateMock.mockResolvedValueOnce({
+      key: null,
+      status: "not_uploaded",
+      updatedAt: null,
+      reservationEligible: false
+    });
+
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(409);
+    expect(createAvatarPresignedPostMock).not.toHaveBeenCalled();
+    expect(reserveAvatarUploadMock).not.toHaveBeenCalled();
   });
 
   it("returns the opaque presigned fields and staging key unchanged", async () => {

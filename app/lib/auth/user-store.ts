@@ -25,10 +25,13 @@ type AuthUserRow = LegacyAuthUserRow & {
 type AvatarMetadataRow = RowDataPacket & Pick<
   AuthUserRow,
   "avatar_key" | "avatar_status" | "avatar_updated_at"
->;
+> & {
+  reservation_eligible?: unknown;
+};
 
 export type AvatarUploadState = {
   key: string | null;
+  reservationEligible: boolean;
   status: AvatarStatus;
   updatedAt: string | null;
 };
@@ -133,7 +136,16 @@ export async function getAvatarUploadState(
   userId: string
 ): Promise<AvatarUploadState | null> {
   const row = await queryOne<AvatarMetadataRow>(
-    `SELECT avatar_key, avatar_status, avatar_updated_at
+    `SELECT avatar_key, avatar_status, avatar_updated_at,
+            CASE
+              WHEN avatar_status IN ('not_uploaded', 'failed')
+                OR (
+                  avatar_status = 'pending_upload'
+                  AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+                )
+              THEN 1
+              ELSE 0
+            END AS reservation_eligible
        FROM users
        WHERE id = ?
        LIMIT 1`,
@@ -146,6 +158,7 @@ export async function getAvatarUploadState(
 
   return {
     key: row.avatar_key,
+    reservationEligible: row.reservation_eligible === 1,
     status: normalizeAvatarStatus(row.avatar_status),
     updatedAt: row.avatar_updated_at
       ? (

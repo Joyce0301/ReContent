@@ -176,20 +176,57 @@ describe("user-store avatar upload state machine", () => {
     queryOneMock.mockResolvedValue({
       avatar_key: stagingKey,
       avatar_status: "confirming",
-      avatar_updated_at: "2026-07-27 08:09:10"
+      avatar_updated_at: "2026-07-27 08:09:10",
+      reservation_eligible: 0
     });
 
     await expect(getAvatarUploadState("user-1")).resolves.toEqual({
       key: stagingKey,
       status: "confirming",
-      updatedAt: "2026-07-27T08:09:10.000Z"
+      updatedAt: "2026-07-27T08:09:10.000Z",
+      reservationEligible: false
     });
-    expect(queryOneMock).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "SELECT avatar_key, avatar_status, avatar_updated_at\n       FROM users\n       WHERE id = ?\n       LIMIT 1"
-      ),
-      ["user-1"]
+    expect(normalizeSql(queryOneMock.mock.calls[0][0])).toBe(
+      "SELECT avatar_key, avatar_status, avatar_updated_at, CASE WHEN avatar_status IN ('not_uploaded', 'failed') OR ( avatar_status = 'pending_upload' AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE ) THEN 1 ELSE 0 END AS reservation_eligible FROM users WHERE id = ? LIMIT 1"
     );
+    expect(queryOneMock.mock.calls[0][1]).toEqual(["user-1"]);
+  });
+
+  it.each([
+    ["not_uploaded", null, 1, true],
+    ["failed", "2026-07-27 08:09:10", 1, true],
+    ["pending_upload", "2026-07-27 08:04:10", 1, true],
+    ["pending_upload", "2026-07-27 08:09:10", 0, false],
+    ["confirming", "2026-07-27 08:09:10", 0, false],
+    ["uploaded", "2026-07-27 08:09:10", 0, false],
+    ["unexpected", "2026-07-27 08:09:10", 0, false]
+  ] as const)(
+    "uses the database reservation decision for %s",
+    async (status, updatedAt, reservationEligible, expected) => {
+      queryOneMock.mockResolvedValue({
+        avatar_key: stagingKey,
+        avatar_status: status,
+        avatar_updated_at: updatedAt,
+        reservation_eligible: reservationEligible
+      });
+
+      await expect(getAvatarUploadState("user-1")).resolves.toMatchObject({
+        reservationEligible: expected
+      });
+    }
+  );
+
+  it("fails closed when the database returns a malformed reservation decision", async () => {
+    queryOneMock.mockResolvedValue({
+      avatar_key: stagingKey,
+      avatar_status: "failed",
+      avatar_updated_at: "2026-07-27 08:09:10",
+      reservation_eligible: "1"
+    });
+
+    await expect(getAvatarUploadState("user-1")).resolves.toMatchObject({
+      reservationEligible: false
+    });
   });
 
   it("reserves a staging key only from an available or stale pending state", async () => {

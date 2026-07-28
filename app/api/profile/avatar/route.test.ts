@@ -280,7 +280,7 @@ describe("POST /api/profile/avatar", () => {
     await POST(createRequest());
 
     expect(consumeRateLimitMock).toHaveBeenCalledWith({
-      bucket: "avatar-upload-intent",
+      bucket: "avatar-upload-dry-run",
       key: "session-user",
       max: 20,
       windowMs: 10 * 60 * 1000

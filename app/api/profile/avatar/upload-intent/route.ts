@@ -98,12 +98,7 @@ export async function POST(request: Request) {
 
     const uploadState = await getAvatarUploadState(session.user.id);
 
-    if (
-      !uploadState ||
-      (uploadState.status !== "not_uploaded" &&
-        uploadState.status !== "failed" &&
-        uploadState.status !== "pending_upload")
-    ) {
+    if (!uploadState?.reservationEligible) {
       return uploadConflictResponse();
     }
 

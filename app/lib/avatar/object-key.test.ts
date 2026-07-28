@@ -68,6 +68,23 @@ describe("createAvatarObjectKeys", () => {
     }
   );
 
+  it.each([
+    "user 1",
+    "user%1",
+    "user?1",
+    "user#1",
+    "user\n1",
+    "用户-1"
+  ])("rejects non-URL-safe user segments: %j", userId => {
+    expect(() =>
+      createAvatarObjectKeys({
+        userId,
+        extension: "png",
+        id: "file-id"
+      })
+    ).toThrow("Object key segments must be non-empty and safe");
+  });
+
   it.each(["", "/", "\\", "..", "file/name", "file\\name", "file..name"])(
     "rejects unsafe id segments: %j",
     id => {
@@ -80,6 +97,23 @@ describe("createAvatarObjectKeys", () => {
       ).toThrow("Object key segments must be non-empty and safe");
     }
   );
+
+  it.each([
+    "file id",
+    "file%id",
+    "file?id",
+    "file#id",
+    "file\u0000id",
+    "上传-1"
+  ])("rejects non-URL-safe upload ids: %j", id => {
+    expect(() =>
+      createAvatarObjectKeys({
+        userId: "user-1",
+        extension: "png",
+        id
+      })
+    ).toThrow("Object key segments must be non-empty and safe");
+  });
 });
 
 describe("parseAvatarStagingKey", () => {
@@ -120,5 +154,16 @@ describe("parseAvatarStagingKey", () => {
         "user/1"
       )
     ).toBeNull();
+  });
+
+  it.each([
+    ["original/pending/user%201/upload-1.webp", "user%201"],
+    ["original/pending/user-1/upload%201.webp", "user-1"],
+    ["original/pending/user-1/upload%2F1.webp", "user-1"],
+    ["original/pending/user-1/upload?1.webp", "user-1"],
+    ["original/pending/user-1/upload#1.webp", "user-1"],
+    ["original/pending/用户-1/upload-1.webp", "用户-1"]
+  ])("rejects a non-URL-safe staging key %j", (key, expectedUserId) => {
+    expect(parseAvatarStagingKey(key, expectedUserId)).toBeNull();
   });
 });

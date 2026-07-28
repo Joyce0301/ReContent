@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     const rateLimit = consumeRateLimit({
-      bucket: "avatar-upload-intent",
+      bucket: "avatar-upload-dry-run",
       key: session.user.id,
       max: 20,
       windowMs: 10 * 60 * 1000

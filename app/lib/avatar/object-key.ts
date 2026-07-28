@@ -3,12 +3,7 @@ import { randomUUID } from "node:crypto";
 const AVATAR_EXTENSIONS = new Set(["jpg", "png", "webp"]);
 
 function isSafeSegment(segment: string) {
-  return (
-    segment.trim().length > 0 &&
-    !segment.includes("/") &&
-    !segment.includes("\\") &&
-    !segment.includes("..")
-  );
+  return /^[A-Za-z0-9_-]+$/.test(segment);
 }
 
 function assertSafeSegment(segment: string) {
@@ -81,8 +76,7 @@ export function parseAvatarStagingKey(
     original !== "original" ||
     pending !== "pending" ||
     userId !== expectedUserId ||
-    !isSafeSegment(userId) ||
-    !isSafeSegment(filename)
+    !isSafeSegment(userId)
   ) {
     return null;
   }
