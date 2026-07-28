@@ -46,6 +46,10 @@ const env = {
 
 const taskDefinitionArn =
   "arn:aws:ecs:us-east-1:881424867096:task-definition/recontent:42";
+const deployRoleArn =
+  "arn:aws:iam::881424867096:role/github-actions-recontent-deploy";
+const serviceArn =
+  "arn:aws:ecs:us-east-1:881424867096:service/default/recontent-b13f";
 
 function validTaskDefinition() {
   return {
@@ -112,6 +116,123 @@ function validDeployPolicy() {
         "iam:SimulatePrincipalPolicy"
       ],
       Resource: "*"
+    }
+  };
+}
+
+function deployReadResources() {
+  return {
+    "ecs:DescribeServices": [serviceArn],
+    "ecs:DescribeTaskDefinition": ["*"],
+    "s3:GetBucketPublicAccessBlock": [bucketArn],
+    "s3:GetBucketCors": [bucketArn],
+    "s3:GetLifecycleConfiguration": [bucketArn],
+    "s3:GetBucketOwnershipControls": [bucketArn],
+    "s3:GetEncryptionConfiguration": [bucketArn],
+    "iam:GetRolePolicy": [taskRoleArn, deployRoleArn],
+    "iam:ListRolePolicies": [taskRoleArn, deployRoleArn],
+    "iam:ListAttachedRolePolicies": [taskRoleArn, deployRoleArn],
+    "iam:GetPolicy": [managedPolicyArn],
+    "iam:GetPolicyVersion": [managedPolicyArn],
+    "iam:SimulatePrincipalPolicy": [taskRoleArn]
+  };
+}
+
+function scopedDeployPolicy() {
+  return {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: "ecs:DescribeServices",
+        Resource: serviceArn
+      },
+      {
+        Effect: "Allow",
+        Action: "ecs:DescribeTaskDefinition",
+        Resource: "*"
+      },
+      {
+        Effect: "Allow",
+        Action: [
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketCors",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetBucketOwnershipControls",
+          "s3:GetEncryptionConfiguration"
+        ],
+        Resource: bucketArn
+      },
+      {
+        Effect: "Allow",
+        Action: [
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies"
+        ],
+        Resource: [taskRoleArn, deployRoleArn]
+      },
+      {
+        Effect: "Allow",
+        Action: ["iam:GetPolicy", "iam:GetPolicyVersion"],
+        Resource: managedPolicyArn
+      },
+      {
+        Effect: "Allow",
+        Action: "iam:SimulatePrincipalPolicy",
+        Resource: taskRoleArn
+      }
+    ]
+  };
+}
+
+function validSimulation() {
+  return {
+    objectInside: {
+      EvaluationResults: [
+        {
+          EvalActionName: "s3:PutObject",
+          EvalResourceName: `${bucketArn}/original/preflight-check`,
+          EvalDecision: "allowed"
+        },
+        {
+          EvalActionName: "s3:GetObject",
+          EvalResourceName: `${bucketArn}/original/preflight-check`,
+          EvalDecision: "allowed"
+        }
+      ]
+    },
+    listOriginal: {
+      EvaluationResults: [
+        {
+          EvalActionName: "s3:ListBucket",
+          EvalResourceName: bucketArn,
+          EvalDecision: "allowed"
+        }
+      ]
+    },
+    objectOutside: {
+      EvaluationResults: [
+        {
+          EvalActionName: "s3:PutObject",
+          EvalResourceName: `${bucketArn}/outside/preflight-check`,
+          EvalDecision: "explicitDeny"
+        },
+        {
+          EvalActionName: "s3:GetObject",
+          EvalResourceName: `${bucketArn}/outside/preflight-check`,
+          EvalDecision: "implicitDeny"
+        }
+      ]
+    },
+    listOutside: {
+      EvaluationResults: [
+        {
+          EvalActionName: "s3:ListBucket",
+          EvalResourceName: bucketArn,
+          EvalDecision: "implicitDeny"
+        }
+      ]
     }
   };
 }
@@ -265,6 +386,42 @@ describe("ECS task definition", () => {
     ["duplicate container", (value: ReturnType<typeof validTaskDefinition>) => {
       value.taskDefinition.containerDefinitions.push({
         ...value.taskDefinition.containerDefinitions[0]
+      });
+    }],
+    ["legacy AVATAR_S3_REGION", (value: ReturnType<typeof validTaskDefinition>) => {
+      value.taskDefinition.containerDefinitions[0].environment.push({
+        name: "AVATAR_S3_REGION",
+        value: "us-east-1"
+      });
+    }],
+    ["duplicate legacy AVATAR_S3_REGION", (value: ReturnType<typeof validTaskDefinition>) => {
+      value.taskDefinition.containerDefinitions[0].environment.push(
+        { name: "AVATAR_S3_REGION", value: "us-east-1" },
+        { name: "AVATAR_S3_REGION", value: "us-west-2" }
+      );
+    }],
+    ["legacy AVATAR_S3_REGION secret", (value: ReturnType<typeof validTaskDefinition>) => {
+      Object.assign(value.taskDefinition.containerDefinitions[0], {
+        secrets: [
+          {
+            name: "AVATAR_S3_REGION",
+            valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/legacy"
+          }
+        ]
+      });
+    }],
+    ["duplicate legacy AVATAR_S3_REGION secrets", (value: ReturnType<typeof validTaskDefinition>) => {
+      Object.assign(value.taskDefinition.containerDefinitions[0], {
+        secrets: [
+          {
+            name: "AVATAR_S3_REGION",
+            valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/legacy-a"
+          },
+          {
+            name: "AVATAR_S3_REGION",
+            valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/legacy-b"
+          }
+        ]
       });
     }]
   ] as const)("rejects %s", (_name, mutate) => {
@@ -722,55 +879,111 @@ describe("IAM policy documents", () => {
 
   it("accepts broad existing deploy attachments while requiring every read action", () => {
     expect(
-      validateDeployRoleReadPolicies([
-        validDeployPolicy(),
-        {
-          Statement: {
-            Effect: "Allow",
-            Action: ["ecr:*", "ecs:*"],
-            Resource: "*"
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Allow",
+              Action: ["ecr:*", "ecs:*"],
+              Resource: "*"
+            }
+          },
+          {
+            Statement: {
+              Effect: "Allow",
+              NotAction: ["iam:CreateUser", "iam:CreateRole"],
+              Resource: "*"
+            }
           }
-        },
-        {
-          Statement: {
-            Effect: "Allow",
-            NotAction: ["iam:CreateUser", "iam:CreateRole"],
-            Resource: "*"
-          }
-        }
-      ])
+        ],
+        deployReadResources()
+      )
     ).toBeUndefined();
   });
 
   it("fails the deploy role hard gate when one read action is absent", () => {
-    const policy = validDeployPolicy();
-    policy.Statement.Action = policy.Statement.Action.filter(
-      action => action !== "iam:SimulatePrincipalPolicy"
-    );
+    const policy = scopedDeployPolicy();
+    policy.Statement.pop();
 
-    expectInvalid(() => validateDeployRoleReadPolicies([policy]));
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies([policy], deployReadResources())
+    );
   });
 
   it("does not accept deploy read actions scoped to an unrelated resource", () => {
-    const policy = validDeployPolicy();
-    policy.Statement.Resource =
+    const policy = scopedDeployPolicy();
+    policy.Statement[2].Resource =
       "arn:aws:s3:::unrelated-bucket";
 
-    expectInvalid(() => validateDeployRoleReadPolicies([policy]));
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies([policy], deployReadResources())
+    );
+  });
+
+  it("does not let Resource star satisfy actions that support resource scope", () => {
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [validDeployPolicy()],
+        deployReadResources()
+      )
+    );
+  });
+
+  it("does not let a broad action attachment provide missing read evidence", () => {
+    const policy = scopedDeployPolicy();
+    policy.Statement[0].Action = "ecs:ListServices";
+
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [
+          policy,
+          {
+            Statement: {
+              Effect: "Allow",
+              Action: "ecs:*",
+              Resource: serviceArn
+            }
+          }
+        ],
+        deployReadResources()
+      )
+    );
+  });
+
+  it("allows Resource star for the required DescribeTaskDefinition read", () => {
+    expect(
+      validateDeployRoleReadPolicies(
+        [scopedDeployPolicy()],
+        deployReadResources()
+      )
+    ).toBeUndefined();
+  });
+
+  it("does not let Resource star satisfy SimulatePrincipalPolicy", () => {
+    const policy = scopedDeployPolicy();
+    policy.Statement[5].Resource = "*";
+
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies([policy], deployReadResources())
+    );
   });
 
   it("fails the deploy role hard gate for an explicit read deny", () => {
     expectInvalid(() =>
-      validateDeployRoleReadPolicies([
-        validDeployPolicy(),
-        {
-          Statement: {
-            Effect: "Deny",
-            Action: "iam:GetPolicyVersion",
-            Resource: "*"
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Deny",
+              Action: "iam:GetPolicyVersion",
+              Resource: "*"
+            }
           }
-        }
-      ])
+        ],
+        deployReadResources()
+      )
     );
   });
 });
@@ -833,56 +1046,48 @@ describe("IAM role policy listings", () => {
 
 describe("effective task-role simulation", () => {
   it("requires exact allows under original and accepts both deny decisions outside it", () => {
-    expect(
-      validateSimulation({
-        objectInside: {
-          EvaluationResults: [
-            {
-              EvalActionName: "s3:PutObject",
-              EvalResourceName: `${bucketArn}/original/preflight-check`,
-              EvalDecision: "allowed"
-            },
-            {
-              EvalActionName: "s3:GetObject",
-              EvalResourceName: `${bucketArn}/original/preflight-check`,
-              EvalDecision: "allowed"
-            }
-          ]
-        },
-        listOriginal: {
-          EvaluationResults: [
-            {
-              EvalActionName: "s3:ListBucket",
-              EvalResourceName: bucketArn,
-              EvalDecision: "allowed"
-            }
-          ]
-        },
-        objectOutside: {
-          EvaluationResults: [
-            {
-              EvalActionName: "s3:PutObject",
-              EvalResourceName: `${bucketArn}/outside/preflight-check`,
-              EvalDecision: "explicitDeny"
-            },
-            {
-              EvalActionName: "s3:GetObject",
-              EvalResourceName: `${bucketArn}/outside/preflight-check`,
-              EvalDecision: "implicitDeny"
-            }
-          ]
-        },
-        listOutside: {
-          EvaluationResults: [
-            {
-              EvalActionName: "s3:ListBucket",
-              EvalResourceName: bucketArn,
-              EvalDecision: "implicitDeny"
-            }
-          ]
-        }
-      }, bucket)
-    ).toBeUndefined();
+    expect(validateSimulation(validSimulation(), bucket)).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "an extra allowed DeleteObject result",
+      {
+        EvalActionName: "s3:DeleteObject",
+        EvalResourceName: `${bucketArn}/original/preflight-check`,
+        EvalDecision: "allowed"
+      }
+    ],
+    [
+      "an extra action result",
+      {
+        EvalActionName: "s3:ListBucket",
+        EvalResourceName: `${bucketArn}/original/preflight-check`,
+        EvalDecision: "implicitDeny"
+      }
+    ],
+    [
+      "an extra resource result",
+      {
+        EvalActionName: "s3:DeleteObject",
+        EvalResourceName: `${bucketArn}/outside/unexpected`,
+        EvalDecision: "implicitDeny"
+      }
+    ]
+  ])("rejects %s", (_name, extraResult) => {
+    const simulation = validSimulation();
+    simulation.objectInside.EvaluationResults.push(extraResult);
+
+    expectInvalid(() => validateSimulation(simulation, bucket));
+  });
+
+  it("rejects a duplicate expected action result", () => {
+    const simulation = validSimulation();
+    simulation.objectInside.EvaluationResults.push({
+      ...simulation.objectInside.EvaluationResults[0]
+    });
+
+    expectInvalid(() => validateSimulation(simulation, bucket));
   });
 
   it.each([
@@ -1189,7 +1394,7 @@ describe("preflight orchestration", () => {
         {
           RoleName: env.GITHUB_DEPLOY_ROLE_NAME,
           PolicyName: "preflight-read",
-          PolicyDocument: validDeployPolicy()
+          PolicyDocument: scopedDeployPolicy()
         }
       ],
       [
@@ -1369,6 +1574,47 @@ describe("preflight orchestration", () => {
     ]);
     expect(logs.join("\n")).not.toMatch(
       /881424867096|recontent-avatar-pipeline|original\/|policy/i
+    );
+  });
+
+  it("does not require managed-policy reads when neither role has attachments", async () => {
+    const aws = createAwsFake();
+    const implementation = aws.getMockImplementation()!;
+    const deployPolicy = scopedDeployPolicy();
+    deployPolicy.Statement.push({
+      Effect: "Allow",
+      Action: "*",
+      Resource: "*"
+    });
+
+    aws.mockImplementation(async args => {
+      if (args[0] === "iam" && args[1] === "list-attached-role-policies") {
+        return { AttachedPolicies: [], IsTruncated: false };
+      }
+      if (
+        args[0] === "iam" &&
+        args[1] === "get-role-policy" &&
+        args.includes(env.GITHUB_DEPLOY_ROLE_NAME)
+      ) {
+        return {
+          RoleName: env.GITHUB_DEPLOY_ROLE_NAME,
+          PolicyName: "preflight-read",
+          PolicyDocument: deployPolicy
+        };
+      }
+      return implementation(args);
+    });
+
+    await expect(
+      runPreflight({ env, aws, log: vi.fn() })
+    ).resolves.toEqual({
+      checks: ["ecs", "s3", "task-role", "simulation", "deploy-role"]
+    });
+    expect(aws).not.toHaveBeenCalledWith(
+      expect.arrayContaining(["iam", "get-policy"])
+    );
+    expect(aws).not.toHaveBeenCalledWith(
+      expect.arrayContaining(["iam", "get-policy-version"])
     );
   });
 

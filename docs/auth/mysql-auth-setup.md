@@ -179,13 +179,22 @@ iam:GetPolicyVersion
 iam:SimulatePrincipalPolicy
 ```
 
-Each allow must cover the current ECS service/task definition, avatar bucket,
-task/deploy roles, and attached managed policies that the command reads; use
-`Resource: "*"` only where a coarse read scope is required. This read scope is
-a hard deployment gate. The role also retains its existing ECR push and ECS
-deployment permissions. Broad externally managed deployment attachments are a
-residual rollout risk and must be reviewed separately; this change does not
-claim that the deploy role is least-privilege.
+Use dedicated statements with the exact actions above. `Resource: "*"` is
+accepted only for `ecs:DescribeTaskDefinition`, whose authorization model
+requires the star resource. Every other allow must name the exact current ECS
+service, avatar bucket, task/deploy role, or attached managed-policy ARN that
+the command reads. In particular, scope `iam:SimulatePrincipalPolicy` to the
+task-role ARN. `iam:GetPolicy` and `iam:GetPolicyVersion` are required only when
+either role's listing contains an attached managed policy, and must then cover
+each listed policy ARN. An unrelated `Action: "*"`/service wildcard or
+`Resource: "*"` attachment does not prove this new read scope.
+
+This read scope is a hard deployment gate. The role also retains its existing
+ECR push and ECS deployment permissions. Broad externally managed deployment
+attachments are enumerated but do not satisfy the gate and do not make this
+task fail solely because they exist. They remain a residual rollout risk that
+must be reviewed separately; this change does not claim that the deploy role is
+least-privilege.
 
 ## ECS / AWS notes
 

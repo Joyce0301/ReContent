@@ -39,7 +39,6 @@ STAGING_HEAD_INPUT="$SMOKE_DIR/staging-head-input.json"
 CONFIRMED_HEAD_INPUT="$SMOKE_DIR/confirmed-head-input.json"
 
 cleanup() {
-  unset PRIMARY_PASSWORD OTHER_PASSWORD
   rm -rf "$SMOKE_DIR"
 }
 trap cleanup EXIT
@@ -52,26 +51,38 @@ test "$IMAGE_SIZE" -le 5242880
 
 ## Authenticate two users
 
-Enter credentials at hidden prompts. They are written only to temporary request
-files and are never placed in shell history or command arguments.
+Enter credentials at prompts. Password input is hidden, remains in a shell-local
+variable only long enough to send it to Node over stdin, and is written only to
+the mode-`600` request file. Neither password enters shell history, a child
+process argument, or the environment.
 
 ```bash
-read -r -p "Primary smoke email: " PRIMARY_EMAIL
-read -r -s -p "Primary smoke password: " PRIMARY_PASSWORD
-printf '\n'
-read -r -p "Second smoke email: " OTHER_EMAIL
-read -r -s -p "Second smoke password: " OTHER_PASSWORD
-printf '\n'
+write_login_body() {
+  local output_file="$1"
+  local prompt_label="$2"
+  local email
+  local password
 
-jq -n \
-  --arg email "$PRIMARY_EMAIL" \
-  --arg password "$PRIMARY_PASSWORD" \
-  '{email: $email, password: $password}' > "$LOGIN_BODY"
-jq -n \
-  --arg email "$OTHER_EMAIL" \
-  --arg password "$OTHER_PASSWORD" \
-  '{email: $email, password: $password}' > "$OTHER_LOGIN_BODY"
-unset PRIMARY_PASSWORD OTHER_PASSWORD
+  read -r -p "$prompt_label email: " email
+  read -r -s -p "$prompt_label password: " password
+  printf '\n'
+
+  if ! printf '%s\n%s\n' "$email" "$password" |
+      node -e '
+        const fs = require("node:fs");
+        const [email, password] = fs.readFileSync(0, "utf8").split("\n");
+        if (!email || !password) process.exit(1);
+        process.stdout.write(JSON.stringify({ email, password }));
+      ' > "$output_file"; then
+    unset email password
+    return 1
+  fi
+
+  unset email password
+}
+
+write_login_body "$LOGIN_BODY" "Primary smoke"
+write_login_body "$OTHER_LOGIN_BODY" "Second smoke"
 
 curl --fail-with-body --silent --show-error \
   --cookie-jar "$COOKIE_JAR" \

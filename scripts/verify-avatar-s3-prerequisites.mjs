@@ -35,6 +35,15 @@ const REQUIRED_DEPLOY_READ_ACTIONS = [
   "iam:SimulatePrincipalPolicy"
 ];
 
+const STAR_ONLY_DEPLOY_READ_ACTIONS = new Set([
+  "ecs:describetaskdefinition"
+]);
+
+const CONDITIONAL_DEPLOY_READ_ACTIONS = new Set([
+  "iam:GetPolicy",
+  "iam:GetPolicyVersion"
+]);
+
 const REPRESENTATIVE_OBJECT_ACTIONS = [
   "s3:AbortMultipartUpload",
   "s3:BypassGovernanceRetention",
@@ -300,6 +309,10 @@ export function validateTaskDefinition(response, expected) {
   }
 
   const environment = containers[0].environment;
+  const secrets = containers[0].secrets;
+  if (secrets !== undefined && !Array.isArray(secrets)) {
+    fail();
+  }
   const exactValue = (name, expectedValue) => {
     const matches = environment.filter(
       item => isRecord(item) && item.name === name
@@ -309,7 +322,15 @@ export function validateTaskDefinition(response, expected) {
 
   if (
     !exactValue("AVATAR_S3_BUCKET", expected.bucket) ||
-    !exactValue("AWS_REGION", expected.runtimeRegion)
+    !exactValue("AWS_REGION", expected.runtimeRegion) ||
+    environment.some(
+      item => isRecord(item) && item.name === "AVATAR_S3_REGION"
+    ) ||
+    (Array.isArray(secrets) &&
+      secrets.some(
+        item => isRecord(item) && item.name === "AVATAR_S3_REGION"
+      )
+    )
   ) {
     fail();
   }
@@ -609,10 +630,42 @@ export function validateTaskRolePolicy(document, bucket) {
   validateTaskRolePolicyBoundaries([decoded], bucket);
 }
 
-function resourcePatternMatches(pattern, expectedResource) {
-  return expectedResource === "*"
-    ? pattern === "*"
-    : wildcardMatches(pattern, expectedResource);
+function statementProvidesDeployRead(statement, action, allowedResources) {
+  if (!isAllow(statement) || !Object.hasOwn(statement, "Action")) {
+    return false;
+  }
+
+  const normalizedAction = action.toLowerCase();
+  const starOnly = STAR_ONLY_DEPLOY_READ_ACTIONS.has(normalizedAction);
+  const actions = asStringArray(statement.Action).map(item =>
+    item.toLowerCase()
+  );
+  const actionsAreDedicated = actions.every(item =>
+    starOnly
+      ? STAR_ONLY_DEPLOY_READ_ACTIONS.has(item)
+      : REQUIRED_DEPLOY_READ_ACTIONS.some(
+          required => required.toLowerCase() === item
+        ) && !STAR_ONLY_DEPLOY_READ_ACTIONS.has(item)
+  );
+  if (!actions.includes(normalizedAction) || !actionsAreDedicated) {
+    return false;
+  }
+
+  const resources = statementResources(statement);
+  if (starOnly) {
+    return (
+      allowedResources.length === 1 &&
+      allowedResources[0] === "*" &&
+      resources.length === 1 &&
+      resources[0] === "*"
+    );
+  }
+
+  return (
+    !allowedResources.includes("*") &&
+    resources.length > 0 &&
+    resources.every(resource => allowedResources.includes(resource))
+  );
 }
 
 export function validateDeployRoleReadPolicies(
@@ -636,7 +689,13 @@ export function validateDeployRoleReadPolicies(
   }
 
   for (const requiredAction of REQUIRED_DEPLOY_READ_ACTIONS) {
-    const actionResources = requiredResources[requiredAction] ?? ["*"];
+    const actionResources = requiredResources[requiredAction];
+    if (
+      actionResources === undefined &&
+      CONDITIONAL_DEPLOY_READ_ACTIONS.has(requiredAction)
+    ) {
+      continue;
+    }
     if (
       !Array.isArray(actionResources) ||
       actionResources.length === 0 ||
@@ -655,11 +714,12 @@ export function validateDeployRoleReadPolicies(
     const allowed = actionResources.every(expectedResource =>
       statements.some(
         statement =>
-          isAllow(statement) &&
-          statementMatchesAction(statement, requiredAction) &&
-          statementResources(statement).some(pattern =>
-            resourcePatternMatches(pattern, expectedResource)
-          )
+          statementProvidesDeployRead(
+            statement,
+            requiredAction,
+            actionResources
+          ) &&
+          statementResources(statement).includes(expectedResource)
       )
     );
 
@@ -723,6 +783,10 @@ function validateDecisions(
   expectedResource
 ) {
   if (!isRecord(response) || !Array.isArray(response.EvaluationResults)) {
+    fail();
+  }
+
+  if (response.EvaluationResults.length !== expectedActions.length) {
     fail();
   }
 
@@ -1050,7 +1114,7 @@ export async function runPreflight({ env: inputEnv, aws, log = console.log }) {
     "ecs:DescribeServices": [
       `arn:aws:ecs:${config.AWS_REGION}:${accountId}:service/${config.ECS_CLUSTER}/${config.ECS_SERVICE}`
     ],
-    "ecs:DescribeTaskDefinition": [taskDefinition],
+    "ecs:DescribeTaskDefinition": ["*"],
     "s3:GetBucketPublicAccessBlock": [bucketArn],
     "s3:GetBucketCors": [bucketArn],
     "s3:GetLifecycleConfiguration": [bucketArn],
@@ -1068,10 +1132,12 @@ export async function runPreflight({ env: inputEnv, aws, log = console.log }) {
       config.EXPECTED_AVATAR_TASK_ROLE_ARN,
       deployRoleArn
     ],
-    "iam:GetPolicy":
-      managedPolicyArns.length > 0 ? managedPolicyArns : ["*"],
-    "iam:GetPolicyVersion":
-      managedPolicyArns.length > 0 ? managedPolicyArns : ["*"],
+    ...(managedPolicyArns.length > 0
+      ? {
+          "iam:GetPolicy": managedPolicyArns,
+          "iam:GetPolicyVersion": managedPolicyArns
+        }
+      : {}),
     "iam:SimulatePrincipalPolicy": [
       config.EXPECTED_AVATAR_TASK_ROLE_ARN
     ]

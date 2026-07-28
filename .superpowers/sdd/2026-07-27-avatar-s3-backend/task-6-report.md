@@ -29,7 +29,22 @@ The preflight was developed test-first with an injected `aws(args)` boundary.
 - RED: adversarial tests found eight failures involving extra S3 object actions,
   broader ListBucket grants, wrong-resource deploy permissions, outside-prefix
   ListBucket simulation, and pagination/shape edge cases.
-- GREEN: the final focused suite passes 90/90 tests.
+- GREEN: that review cycle passed 90/90 focused tests.
+- RED: the follow-up main-flow review added eight tests and exposed six failures:
+  target-container legacy region entries, extra simulation results, and broad
+  deploy-role resources satisfying scoped reads.
+- GREEN: exact simulation cardinality, legacy environment rejection, and
+  dedicated exact-action/resource evidence brought the suite to 99/99.
+- RED: independent review then exposed the no-attached-managed-policy path as
+  one failure in 100 tests.
+- GREEN: managed-policy reads became conditional on actual attachments, passing
+  100/100.
+- RED: adversarial review corrected the simulation resource model and added
+  legacy ECS secret coverage, producing six expected failures in 103 tests.
+- GREEN: only `ecs:DescribeTaskDefinition` permits `Resource: "*"`,
+  `iam:SimulatePrincipalPolicy` requires the exact task-role ARN, and legacy
+  `AVATAR_S3_REGION` is rejected from both environment and secrets. The final
+  focused suite passes 103/103 tests.
 
 The final suite covers `Action`, `Resource`, `NotAction`, and `NotResource`
 wildcards; inline and attached policy enumeration; explicit pagination failure;
@@ -48,20 +63,29 @@ inside/outside-prefix simulations.
   wrong resources, and CORS rules containing additional POST origins.
 - Both reviewers approved the corrected implementation with no remaining
   must-fix finding.
+- A follow-up main-flow review initially requested changes for password argv
+  exposure, permissive simulation result cardinality, legacy region handling,
+  and broad deploy-role read evidence. All requested tests and fixes were added.
+- The independent re-review found and fixed one additional no-managed-policy
+  edge case. A second adversarial review corrected
+  `iam:SimulatePrincipalPolicy` to exact task-role scope and extended legacy
+  rejection to ECS secrets.
+- Both follow-up reviewers approved the final 103-test implementation with no
+  remaining finding.
 
 ## Verification
 
 | Command | Result |
 | --- | --- |
-| `npx vitest run scripts/verify-avatar-s3-prerequisites.test.ts` | PASS: 1 file, 90 tests |
-| CI-equivalent `npx vitest run ...` command from `.github/workflows/ci.yml` | PASS: 32 files, 489 tests |
+| `npx vitest run scripts/verify-avatar-s3-prerequisites.test.ts` | PASS: 1 file, 103 tests |
+| CI-equivalent `npx vitest run ...` command from `.github/workflows/ci.yml` | PASS: 32 files, 502 tests |
 | `npm run lint` | PASS |
 | `node --check scripts/verify-avatar-s3-prerequisites.mjs` | PASS |
 | `npx tsc --noEmit --incremental false` | PASS |
 | `npm run build` | PASS |
 | `npx --no-install opennextjs-cloudflare build` | PASS; generated dependency bundle reports a non-fatal `-0 === 0` warning |
 | `docker version` | ENVIRONMENT BLOCKED: Docker 29.4.0 client is installed, but the configured Colima daemon socket does not exist, so no Docker build was attempted |
-| `git diff --check` | PASS before report creation; rerun before commit |
+| `git diff --check` | PASS before commit |
 
 ## Live Hard Gates
 
@@ -69,9 +93,10 @@ The following remain mandatory manual gates because Task 6 intentionally does
 not access live AWS:
 
 1. Grant the GitHub deployment role the documented read-only ECS, S3, IAM, and
-   policy-simulation scope on the exact production resources. The deployment
-   role's existing broad attachments are a residual risk and are not evidence of
-   least privilege.
+   policy-simulation scope on the exact production resources. Only
+   `ecs:DescribeTaskDefinition` uses `Resource: "*"`; principal simulation is
+   scoped to the exact task-role ARN. The deployment role's existing broad
+   attachments are a residual risk and are not evidence of least privilege.
 2. Apply and verify the documented token migration before enabling avatar
    uploads. Confirm the token-fenced lease behavior against production MySQL.
 3. Run the deployment preflight with GitHub OIDC credentials. It must validate
