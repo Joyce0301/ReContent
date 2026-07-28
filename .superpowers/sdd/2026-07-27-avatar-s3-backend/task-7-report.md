@@ -65,6 +65,11 @@ Draft PR state was changed.
   PRIMARY task definition could still pass. The added test was the sole failure
   in a 204-test preflight run; canonical task-definition validation produced the
   final 204/204 GREEN.
+- RED/GREEN ECS metadata logging: the workflow gate initially found two
+  `describe-services` calls and a resolved-task echo. After removing both log
+  paths, independent review exposed that AWS CLI stderr could still bypass the
+  generic error under `set -e`. Guarded command substitution, stderr suppression,
+  and an explicit no-xtrace contract produced the final 208/208 GREEN.
 
 ## Findings Fixed
 
@@ -88,6 +93,10 @@ Draft PR state was changed.
   accepts a null or omitted top-level task definition, and rejects absent or
   duplicate PRIMARY deployments, incomplete rollouts, zero or mismatched task
   counts, malformed fields, and any conflicting top-level task definition.
+- The deploy workflow resolves the current task definition once without logging
+  the ARN or dumping the service response. CLI failures and empty results emit
+  one fixed generic error, while successful resolution is passed only through
+  `GITHUB_OUTPUT` to the render action.
 - CI retains docs-only `paths-ignore` and Docker build while running OpenNext
   with `--skipNextBuild` after the standalone Next build.
 - Production branch, tag, and manual deployments share the static
@@ -130,20 +139,23 @@ Draft PR state was changed.
   review. They identified missing direct fail-closed coverage and a padded task
   definition bypass; both were reproduced or locked by tests and fixed before
   final validation.
+- The final logging fix also received independent code and adversarial reviews.
+  They identified the AWS CLI nonzero-exit stderr path and missing xtrace
+  regression coverage; both findings were closed before the final matrix.
 
 ## Verification
 
 | Command | Result |
 | --- | --- |
 | Focused auth/avatar/preflight tests | PASS: 18 files, 453 tests |
-| Focused live ECS preflight tests | PASS: 1 file, 204 tests |
-| CI-equivalent Vitest command | PASS: 34 files, 641 tests |
+| Focused live ECS/preflight tests | PASS: 1 file, 208 tests |
+| CI-equivalent Vitest command | PASS: 34 files, 645 tests |
 | `npm run lint` | PASS |
 | `npx tsc --noEmit --incremental false` | PASS |
 | `npm run build` | PASS |
 | `npx --no-install opennextjs-cloudflare build --skipNextBuild` | PASS after the exclusive Next build; output confirms the Next build was skipped, and the dependency bundle reports the existing non-fatal `-0 === 0` warning |
 | `node --check scripts/verify-avatar-s3-prerequisites.mjs` | PASS |
-| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 204-test script/workflow suite |
+| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 208-test script/workflow suite |
 | `git diff --check` | PASS before staging |
 | `docker version` | ENVIRONMENT BLOCKED: Docker 29.4.0 client is installed, but the configured Colima socket does not exist |
 

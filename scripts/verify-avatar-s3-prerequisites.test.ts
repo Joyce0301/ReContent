@@ -334,6 +334,16 @@ describe("ECS task definition", () => {
     expectInvalid(() => validateService(response, env.ECS_SERVICE));
   });
 
+  it.each(["", "   ", ` ${taskDefinitionArn} `])(
+    "rejects malformed top-level task definition %j",
+    topLevelTaskDefinition => {
+      const response = validServiceResponse();
+      response.services[0].taskDefinition = topLevelTaskDefinition;
+
+      expectInvalid(() => validateService(response, env.ECS_SERVICE));
+    }
+  );
+
   it.each([
     {
       services: [],
@@ -2656,6 +2666,45 @@ describe("avatar deployment workflow gates", () => {
     );
     expect(steps[validateIndex].run).toContain(
       "${{ steps.render-task-def.outputs.task-definition }}"
+    );
+  });
+
+  it("resolves the current task definition without logging ECS metadata", () => {
+    const steps = workflowJobSteps("deploy.yml", "deploy");
+    const taskDefinitionStep = steps.find(
+      step => step.name === "Get current ECS task definition"
+    );
+    const run = taskDefinitionStep?.run ?? "";
+    const describeCalls = run.match(/aws ecs describe-services/g) ?? [];
+    const echoLines = run
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line.startsWith("echo "));
+    const executableLines = run
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    expect(executableLines[0]).toBe("set -euo pipefail");
+    expect(run).not.toMatch(/\bset\s+-[A-Za-z]*x/);
+    expect(run).not.toContain("set -o xtrace");
+    expect(describeCalls).toHaveLength(1);
+    expect(run).toContain("if ! TASK_DEFINITION=$(aws ecs describe-services");
+    expect(run).toContain("--output text 2>/dev/null); then");
+    expect(run).toMatch(/then\s+TASK_DEFINITION=""\s+fi/);
+    expect(run).not.toContain("Resolved task definition");
+    expect(run).not.toContain("services:");
+    expect(run).not.toContain("deployments:");
+    expect(echoLines).toEqual([
+      'echo "Failed to resolve ECS task definition" >&2',
+      'echo "task-definition=$TASK_DEFINITION" >> "$GITHUB_OUTPUT"'
+    ]);
+    expect(run).not.toContain(
+      "Failed to resolve ECS task definition for service"
+    );
+    expect(run).not.toContain("in cluster");
+    expect(run.indexOf("exit 1")).toBeGreaterThan(
+      run.indexOf('echo "Failed to resolve ECS task definition" >&2')
     );
   });
 

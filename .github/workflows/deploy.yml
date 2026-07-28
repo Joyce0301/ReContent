@@ -119,19 +119,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          TASK_DEFINITION=$(aws ecs describe-services \
+          if ! TASK_DEFINITION=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE" \
             --query "services[0].deployments[?status=='PRIMARY'] | [0].taskDefinition" \
-            --output text)
-
-          echo "Resolved task definition: $TASK_DEFINITION"
+            --output text 2>/dev/null); then
+            TASK_DEFINITION=""
+          fi
 
           if [ -z "$TASK_DEFINITION" ] || [ "$TASK_DEFINITION" = "None" ]; then
-            echo "Failed to resolve ECS task definition for service $ECS_SERVICE in cluster $ECS_CLUSTER"
-            aws ecs describe-services \
-              --cluster "$ECS_CLUSTER" \
-              --services "$ECS_SERVICE"
+            echo "Failed to resolve ECS task definition" >&2
             exit 1
           fi
 
