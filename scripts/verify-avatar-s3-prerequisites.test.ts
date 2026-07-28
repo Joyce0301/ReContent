@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { parse } from "yaml";
 
 import {
   createAwsCliExecutor,
   decodePolicyDocument,
   parseAwsJson,
+  runRenderedTaskPreflight,
   runPreflight,
   validateCors,
   validateDeployRoleReadPolicies,
@@ -18,7 +22,8 @@ import {
   validateSimulation,
   validateTaskRolePolicyBoundaries,
   validateTaskDefinition,
-  validateTaskRolePolicy
+  validateTaskRolePolicy,
+  validateRenderedTaskDefinition
 } from "./verify-avatar-s3-prerequisites.mjs";
 
 const bucket = "recontent-avatar-pipeline-20260726";
@@ -50,6 +55,20 @@ const deployRoleArn =
   "arn:aws:iam::881424867096:role/github-actions-recontent-deploy";
 const serviceArn =
   "arn:aws:ecs:us-east-1:881424867096:service/default/recontent-b13f";
+const alternateCredentialNames = [
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_PROFILE",
+  "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_CONFIG_FILE",
+  "AWS_ROLE_ARN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"
+] as const;
 
 function validTaskDefinition() {
   return {
@@ -438,6 +457,174 @@ describe("ECS task definition", () => {
       })
     );
   });
+
+  it.each(alternateCredentialNames)(
+    "rejects alternate credential environment variable %s",
+    name => {
+      const response = validTaskDefinition();
+      response.taskDefinition.containerDefinitions[0].environment.push({
+        name,
+        value: "must-not-override-task-role"
+      });
+
+      expectInvalid(() =>
+        validateTaskDefinition(response, {
+          containerName: "Main",
+          bucket,
+          runtimeRegion: "us-east-1",
+          taskRoleArn,
+          taskDefinitionArn
+        })
+      );
+    }
+  );
+
+  it.each(alternateCredentialNames)(
+    "rejects alternate credential secret %s",
+    name => {
+      const response = validTaskDefinition();
+      Object.assign(response.taskDefinition.containerDefinitions[0], {
+        secrets: [
+          {
+            name,
+            valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/blocked"
+          }
+        ]
+      });
+
+      expectInvalid(() =>
+        validateTaskDefinition(response, {
+          containerName: "Main",
+          bucket,
+          runtimeRegion: "us-east-1",
+          taskRoleArn,
+          taskDefinitionArn
+        })
+      );
+    }
+  );
+
+  it("rejects case-variant and mixed environment/secret credential overrides", () => {
+    const response = validTaskDefinition();
+    response.taskDefinition.containerDefinitions[0].environment.push({
+      name: "aws_access_key_id",
+      value: "blocked"
+    });
+    Object.assign(response.taskDefinition.containerDefinitions[0], {
+      secrets: [
+        {
+          name: "AWS_ACCESS_KEY_ID",
+          valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/blocked"
+        }
+      ]
+    });
+
+    expectInvalid(() =>
+      validateTaskDefinition(response, {
+        containerName: "Main",
+        bucket,
+        runtimeRegion: "us-east-1",
+        taskRoleArn,
+        taskDefinitionArn
+      })
+    );
+  });
+});
+
+describe("rendered ECS task definition", () => {
+  function validRenderedTaskDefinition() {
+    const task = validTaskDefinition().taskDefinition;
+    const {
+      status: _status,
+      taskDefinitionArn: _taskDefinitionArn,
+      ...rendered
+    } = task;
+    return rendered;
+  }
+
+  const expected = {
+    containerName: "Main",
+    bucket,
+    runtimeRegion: "us-east-1",
+    taskRoleArn
+  };
+
+  it("accepts render-action JSON without requiring live ACTIVE metadata", () => {
+    expect(
+      validateRenderedTaskDefinition(validRenderedTaskDefinition(), expected)
+    ).toEqual({ taskRoleArn });
+  });
+
+  it.each([
+    ["missing task role", (task: ReturnType<typeof validRenderedTaskDefinition>) => {
+      delete (task as { taskRoleArn?: string }).taskRoleArn;
+    }],
+    ["missing bucket", (task: ReturnType<typeof validRenderedTaskDefinition>) => {
+      task.containerDefinitions[0].environment =
+        task.containerDefinitions[0].environment.filter(
+          item => item.name !== "AVATAR_S3_BUCKET"
+        );
+    }],
+    ["wrong region", (task: ReturnType<typeof validRenderedTaskDefinition>) => {
+      task.containerDefinitions[0].environment[1].value = "us-west-2";
+    }],
+    ["legacy region", (task: ReturnType<typeof validRenderedTaskDefinition>) => {
+      task.containerDefinitions[0].environment.push({
+        name: "AVATAR_S3_REGION",
+        value: "us-east-1"
+      });
+    }],
+    ["static credentials", (task: ReturnType<typeof validRenderedTaskDefinition>) => {
+      task.containerDefinitions[0].environment.push({
+        name: "AWS_ACCESS_KEY_ID",
+        value: "blocked"
+      });
+    }]
+  ] as const)("rejects %s", (_name, mutate) => {
+    const task = validRenderedTaskDefinition();
+    mutate(task);
+
+    expectInvalid(() => validateRenderedTaskDefinition(task, expected));
+  });
+
+  it("reads and validates the render action output without an AWS boundary", async () => {
+    const readFile = vi.fn().mockResolvedValue(
+      JSON.stringify(validRenderedTaskDefinition())
+    );
+    const log = vi.fn();
+
+    await expect(
+      runRenderedTaskPreflight({
+        env,
+        taskDefinitionPath: "/tmp/rendered-task-definition.json",
+        readFile,
+        log
+      })
+    ).resolves.toEqual({ checks: ["rendered-task-definition"] });
+    expect(readFile).toHaveBeenCalledWith(
+      "/tmp/rendered-task-definition.json",
+      "utf8"
+    );
+    expect(log).toHaveBeenCalledWith("PASS rendered ECS task definition");
+  });
+
+  it.each([
+    ["file read", vi.fn().mockRejectedValue(new Error("SECRET file path"))],
+    ["malformed JSON", vi.fn().mockResolvedValue('{"SECRET":')]
+  ])("redacts %s failures", async (_name, readFile) => {
+    await expect(
+      runRenderedTaskPreflight({
+        env,
+        taskDefinitionPath: "/tmp/rendered-task-definition.json",
+        readFile,
+        log: vi.fn()
+      })
+    ).rejects.toSatisfy(
+      (error: Error) =>
+        /prerequisite/i.test(error.message) &&
+        !/SECRET|file path/.test(error.message)
+    );
+  });
 });
 
 describe("S3 bucket controls", () => {
@@ -579,6 +766,42 @@ describe("S3 bucket controls", () => {
             {
               AllowedOrigins: ["*"],
               AllowedMethods: ["POST"]
+            }
+          ]
+        },
+        origin
+      )
+    );
+
+    expectInvalid(() =>
+      validateCors(
+        {
+          CORSRules: [
+            {
+              AllowedOrigins: [origin],
+              AllowedMethods: ["POST"]
+            },
+            {
+              AllowedOrigins: ["https://other.example.test"],
+              AllowedMethods: ["GET"]
+            }
+          ]
+        },
+        origin
+      )
+    );
+
+    expectInvalid(() =>
+      validateCors(
+        {
+          CORSRules: [
+            {
+              AllowedOrigins: [origin],
+              AllowedMethods: ["POST"]
+            },
+            {
+              AllowedOrigins: ["*"],
+              AllowedMethods: ["GET"]
             }
           ]
         },
@@ -1881,5 +2104,66 @@ describe("preflight orchestration", () => {
         /AWS prerequisite check failed/.test(error.message) &&
         !/SECRET|policy=|bucket\/key|request-id/.test(error.message)
     );
+  });
+});
+
+describe("avatar deployment workflow gates", () => {
+  type WorkflowStep = {
+    id?: string;
+    name?: string;
+    run?: string;
+    uses?: string;
+    with?: Record<string, string>;
+  };
+
+  function workflowJobSteps(file: string, job: string) {
+    const workflow = parse(
+      readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8")
+    ) as {
+      jobs: Record<string, { steps: WorkflowStep[] }>;
+    };
+
+    return workflow.jobs[job].steps;
+  }
+
+  it("validates the rendered task definition after render and before deploy", () => {
+    const steps = workflowJobSteps("deploy.yml", "deploy");
+    const renderIndex = steps.findIndex(
+      step => step.id === "render-task-def"
+    );
+    const validateIndex = steps.findIndex(
+      step => step.name === "Verify rendered avatar S3 task definition"
+    );
+    const deployIndex = steps.findIndex(
+      step =>
+        step.uses === "aws-actions/amazon-ecs-deploy-task-definition@v2"
+    );
+
+    expect(renderIndex).toBeGreaterThan(-1);
+    expect(validateIndex).toBeGreaterThan(renderIndex);
+    expect(deployIndex).toBeGreaterThan(validateIndex);
+    expect(steps[validateIndex].run).toContain(
+      "node scripts/verify-avatar-s3-prerequisites.mjs --rendered-task-definition"
+    );
+    expect(steps[validateIndex].run).toContain(
+      "${{ steps.render-task-def.outputs.task-definition }}"
+    );
+  });
+
+  it("builds OpenNext after Next and still gates the Docker image", () => {
+    const steps = workflowJobSteps("ci.yml", "verify");
+    const nextBuildIndex = steps.findIndex(
+      step => step.run === "npm run build"
+    );
+    const openNextIndex = steps.findIndex(
+      step => step.run === "npx --no-install opennextjs-cloudflare build"
+    );
+    const dockerIndex = steps.findIndex(step =>
+      step.run?.includes("docker build -t recontent:ci .")
+    );
+
+    expect(nextBuildIndex).toBeGreaterThan(-1);
+    expect(openNextIndex).toBeGreaterThan(nextBuildIndex);
+    expect(dockerIndex).toBeGreaterThan(openNextIndex);
   });
 });

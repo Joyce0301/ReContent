@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile as readFileFromDisk } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -18,6 +19,28 @@ const REQUIRED_ENVIRONMENT = [
   "GITHUB_DEPLOY_ROLE_NAME",
   "AVATAR_ALLOWED_ORIGIN"
 ];
+
+const REQUIRED_RENDERED_ENVIRONMENT = [
+  "ECS_CONTAINER_NAME",
+  "AVATAR_S3_BUCKET",
+  "EXPECTED_AVATAR_RUNTIME_REGION",
+  "EXPECTED_AVATAR_TASK_ROLE_ARN"
+];
+
+const ALTERNATE_AWS_CREDENTIAL_ENVIRONMENT = new Set([
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_PROFILE",
+  "AWS_SHARED_CREDENTIALS_FILE",
+  "AWS_CONFIG_FILE",
+  "AWS_ROLE_ARN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+  "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"
+]);
 
 const REQUIRED_DEPLOY_READ_ACTIONS = [
   "ecs:DescribeServices",
@@ -260,6 +283,78 @@ export function validateEnvironment(input) {
   return validated;
 }
 
+function validateSelectedEnvironment(input, requiredNames) {
+  if (!isRecord(input)) {
+    fail();
+  }
+
+  const validated = {};
+  for (const name of requiredNames) {
+    const value = input[name];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      fail();
+    }
+    validated[name] = value;
+  }
+  return validated;
+}
+
+function validateTaskRuntime(task, expected) {
+  if (
+    !isRecord(task) ||
+    task.taskRoleArn !== expected.taskRoleArn ||
+    !Array.isArray(task.containerDefinitions)
+  ) {
+    fail();
+  }
+
+  const containers = task.containerDefinitions.filter(
+    container => isRecord(container) && container.name === expected.containerName
+  );
+
+  if (containers.length !== 1 || !Array.isArray(containers[0].environment)) {
+    fail();
+  }
+
+  const environment = containers[0].environment;
+  const secrets = containers[0].secrets;
+  if (secrets !== undefined && !Array.isArray(secrets)) {
+    fail();
+  }
+
+  const exactValue = (name, expectedValue) => {
+    const matches = environment.filter(
+      item => isRecord(item) && item.name === name
+    );
+    return matches.length === 1 && matches[0].value === expectedValue;
+  };
+  const runtimeEntries = [
+    ...environment,
+    ...(Array.isArray(secrets) ? secrets : [])
+  ];
+  const hasForbiddenName = runtimeEntries.some(item => {
+    if (!isRecord(item) || typeof item.name !== "string") {
+      return false;
+    }
+
+    const normalizedName = item.name.toUpperCase();
+    return (
+      normalizedName === "AVATAR_S3_REGION" ||
+      ALTERNATE_AWS_CREDENTIAL_ENVIRONMENT.has(normalizedName)
+    );
+  });
+
+  if (
+    !exactValue("AVATAR_S3_BUCKET", expected.bucket) ||
+    !exactValue("AWS_REGION", expected.runtimeRegion) ||
+    hasForbiddenName
+  ) {
+    fail();
+  }
+
+  return { taskRoleArn: task.taskRoleArn };
+}
+
 export function validateService(response, expectedService) {
   if (
     !isRecord(response) ||
@@ -294,48 +389,16 @@ export function validateTaskDefinition(response, expected) {
   if (
     task.status !== "ACTIVE" ||
     task.taskDefinitionArn !== expected.taskDefinitionArn ||
-    task.taskRoleArn !== expected.taskRoleArn ||
-    !Array.isArray(task.containerDefinitions)
+    task.taskRoleArn !== expected.taskRoleArn
   ) {
     fail();
   }
 
-  const containers = task.containerDefinitions.filter(
-    container => isRecord(container) && container.name === expected.containerName
-  );
+  return validateTaskRuntime(task, expected);
+}
 
-  if (containers.length !== 1 || !Array.isArray(containers[0].environment)) {
-    fail();
-  }
-
-  const environment = containers[0].environment;
-  const secrets = containers[0].secrets;
-  if (secrets !== undefined && !Array.isArray(secrets)) {
-    fail();
-  }
-  const exactValue = (name, expectedValue) => {
-    const matches = environment.filter(
-      item => isRecord(item) && item.name === name
-    );
-    return matches.length === 1 && matches[0].value === expectedValue;
-  };
-
-  if (
-    !exactValue("AVATAR_S3_BUCKET", expected.bucket) ||
-    !exactValue("AWS_REGION", expected.runtimeRegion) ||
-    environment.some(
-      item => isRecord(item) && item.name === "AVATAR_S3_REGION"
-    ) ||
-    (Array.isArray(secrets) &&
-      secrets.some(
-        item => isRecord(item) && item.name === "AVATAR_S3_REGION"
-      )
-    )
-  ) {
-    fail();
-  }
-
-  return { taskRoleArn: task.taskRoleArn };
+export function validateRenderedTaskDefinition(task, expected) {
+  return validateTaskRuntime(task, expected);
 }
 
 export function validatePublicAccessBlock(response) {
@@ -397,18 +460,16 @@ export function validateCors(response, allowedOrigin) {
     fail();
   }
 
-  const postRules = response.CORSRules.filter(rule =>
+  const allOriginsAreExact = response.CORSRules.every(
+    rule =>
+      rule.AllowedOrigins.length === 1 &&
+      rule.AllowedOrigins[0] === allowedOrigin
+  );
+  const hasExactPostRule = response.CORSRules.some(rule =>
     rule.AllowedMethods.includes("POST")
   );
-  const exactPostRules =
-    postRules.length > 0 &&
-    postRules.every(
-      rule =>
-        rule.AllowedOrigins.length === 1 &&
-        rule.AllowedOrigins[0] === allowedOrigin
-    );
 
-  if (!exactPostRules) {
+  if (!allOriginsAreExact || !hasExactPostRule) {
     fail();
   }
 }
@@ -1191,6 +1252,44 @@ export async function runPreflight({ env: inputEnv, aws, log = console.log }) {
   };
 }
 
+export async function runRenderedTaskPreflight({
+  env: inputEnv,
+  taskDefinitionPath,
+  readFile = readFileFromDisk,
+  log = console.log
+}) {
+  const config = validateSelectedEnvironment(
+    inputEnv,
+    REQUIRED_RENDERED_ENVIRONMENT
+  );
+  if (
+    typeof taskDefinitionPath !== "string" ||
+    taskDefinitionPath.trim().length === 0 ||
+    typeof readFile !== "function" ||
+    typeof log !== "function"
+  ) {
+    fail();
+  }
+
+  let task;
+  try {
+    const source = await readFile(taskDefinitionPath, "utf8");
+    task = JSON.parse(source);
+  } catch {
+    fail();
+  }
+
+  validateRenderedTaskDefinition(task, {
+    containerName: config.ECS_CONTAINER_NAME,
+    bucket: config.AVATAR_S3_BUCKET,
+    runtimeRegion: config.EXPECTED_AVATAR_RUNTIME_REGION,
+    taskRoleArn: config.EXPECTED_AVATAR_TASK_ROLE_ARN
+  });
+  log("PASS rendered ECS task definition");
+
+  return { checks: ["rendered-task-definition"] };
+}
+
 export function createAwsCliExecutor(executor = execFile) {
   return args =>
     new Promise((resolvePromise, rejectPromise) => {
@@ -1219,11 +1318,25 @@ export function createAwsCliExecutor(executor = execFile) {
 
 export async function main() {
   try {
-    await runPreflight({
-      env: process.env,
-      aws: createAwsCliExecutor(),
-      log: message => console.log(message)
-    });
+    const args = process.argv.slice(2);
+    if (
+      args.length === 2 &&
+      args[0] === "--rendered-task-definition"
+    ) {
+      await runRenderedTaskPreflight({
+        env: process.env,
+        taskDefinitionPath: args[1],
+        log: message => console.log(message)
+      });
+    } else if (args.length === 0) {
+      await runPreflight({
+        env: process.env,
+        aws: createAwsCliExecutor(),
+        log: message => console.log(message)
+      });
+    } else {
+      fail();
+    }
   } catch {
     console.error("FAIL Avatar S3 deployment prerequisites");
     process.exitCode = 1;
