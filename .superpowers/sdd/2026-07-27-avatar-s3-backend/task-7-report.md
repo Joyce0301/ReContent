@@ -6,7 +6,7 @@ This task resolves the final review findings for avatar upload reservation
 ordering, rate-limit isolation, ECS credential-chain safety, rendered task
 definition validation, OpenNext CI coverage, S3 CORS policy, real presigned POST
 policy coverage, object-key segment safety, and the final adversarial edge-case
-follow-up.
+follow-up, including the live ECS PRIMARY deployment response shape.
 
 No frontend upload behavior, migration column design, live AWS resource, push, or
 Draft PR state was changed.
@@ -57,6 +57,14 @@ Draft PR state was changed.
   (2 failures in 176 tests). Each failure was recorded before implementation;
   canonical env-name and secret-reference validation produced the final 176/176
   GREEN.
+- RED live ECS shape: 17 focused service tests failed because the live response
+  had a null top-level task definition and the old validator ignored deployment
+  stability. The validator now resolves the unique PRIMARY deployment only when
+  its rollout is complete and all desired tasks are running.
+- RED/GREEN live ECS review: independent review found that a whitespace-padded
+  PRIMARY task definition could still pass. The added test was the sole failure
+  in a 204-test preflight run; canonical task-definition validation produced the
+  final 204/204 GREEN.
 
 ## Findings Fixed
 
@@ -76,6 +84,10 @@ Draft PR state was changed.
   separate static rendered-task mode validates the exact task role, unique
   container, bucket, runtime region, legacy region absence, and credential-chain
   absence before the deploy action.
+- Live service discovery treats the unique PRIMARY deployment as authoritative,
+  accepts a null or omitted top-level task definition, and rejects absent or
+  duplicate PRIMARY deployments, incomplete rollouts, zero or mismatched task
+  counts, malformed fields, and any conflicting top-level task definition.
 - CI retains docs-only `paths-ignore` and Docker build while running OpenNext
   with `--skipNextBuild` after the standalone Next build.
 - Production branch, tag, and manual deployments share the static
@@ -114,19 +126,24 @@ Draft PR state was changed.
   requirement constrains rule count, origins, and methods; fields such as
   `AllowedHeaders` may be valid for browser POST uploads and do not broaden the
   allowed origin or method.
+- The live ECS follow-up received an independent code review and adversarial
+  review. They identified missing direct fail-closed coverage and a padded task
+  definition bypass; both were reproduced or locked by tests and fixed before
+  final validation.
 
 ## Verification
 
 | Command | Result |
 | --- | --- |
 | Focused auth/avatar/preflight tests | PASS: 18 files, 453 tests |
-| CI-equivalent Vitest command | PASS: 34 files, 613 tests |
+| Focused live ECS preflight tests | PASS: 1 file, 204 tests |
+| CI-equivalent Vitest command | PASS: 34 files, 641 tests |
 | `npm run lint` | PASS |
 | `npx tsc --noEmit --incremental false` | PASS |
 | `npm run build` | PASS |
 | `npx --no-install opennextjs-cloudflare build --skipNextBuild` | PASS after the exclusive Next build; output confirms the Next build was skipped, and the dependency bundle reports the existing non-fatal `-0 === 0` warning |
 | `node --check scripts/verify-avatar-s3-prerequisites.mjs` | PASS |
-| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 176-test script/workflow suite |
+| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 204-test script/workflow suite |
 | `git diff --check` | PASS before staging |
 | `docker version` | ENVIRONMENT BLOCKED: Docker 29.4.0 client is installed, but the configured Colima socket does not exist |
 

@@ -396,13 +396,41 @@ export function validateService(response, expectedService) {
     !isRecord(service) ||
     service.serviceName !== expectedService ||
     service.status !== "ACTIVE" ||
-    typeof service.taskDefinition !== "string" ||
-    service.taskDefinition.length === 0
+    !Array.isArray(service.deployments) ||
+    !service.deployments.every(isRecord)
   ) {
     fail();
   }
 
-  return service.taskDefinition;
+  const primaryDeployments = service.deployments.filter(
+    deployment => deployment.status === "PRIMARY"
+  );
+  if (primaryDeployments.length !== 1) {
+    fail();
+  }
+
+  const primary = primaryDeployments[0];
+  const topLevelTaskDefinition = service.taskDefinition;
+  if (
+    typeof primary.taskDefinition !== "string" ||
+    primary.taskDefinition.trim().length === 0 ||
+    primary.taskDefinition !== primary.taskDefinition.trim() ||
+    primary.rolloutState !== "COMPLETED" ||
+    !Number.isInteger(primary.runningCount) ||
+    !Number.isInteger(primary.desiredCount) ||
+    primary.desiredCount <= 0 ||
+    primary.runningCount !== primary.desiredCount ||
+    (topLevelTaskDefinition !== null &&
+      topLevelTaskDefinition !== undefined &&
+      (typeof topLevelTaskDefinition !== "string" ||
+        topLevelTaskDefinition.trim().length === 0 ||
+        topLevelTaskDefinition !== topLevelTaskDefinition.trim() ||
+        topLevelTaskDefinition !== primary.taskDefinition))
+  ) {
+    fail();
+  }
+
+  return primary.taskDefinition;
 }
 
 export function validateTaskDefinition(response, expected) {

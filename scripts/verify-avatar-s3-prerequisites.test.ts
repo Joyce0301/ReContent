@@ -91,6 +91,28 @@ function validTaskDefinition() {
   };
 }
 
+function validServiceResponse() {
+  return {
+    services: [
+      {
+        serviceName: env.ECS_SERVICE,
+        status: "ACTIVE",
+        taskDefinition: null as string | null,
+        deployments: [
+          {
+            status: "PRIMARY",
+            taskDefinition: taskDefinitionArn as string | null,
+            rolloutState: "COMPLETED" as string | null,
+            runningCount: 1 as number | null,
+            desiredCount: 1 as number | null
+          }
+        ]
+      }
+    ],
+    failures: [] as unknown[]
+  };
+}
+
 function validTaskPolicy() {
   return {
     Version: "2012-10-17",
@@ -283,63 +305,270 @@ describe("environment contract", () => {
 });
 
 describe("ECS task definition", () => {
-  it("resolves exactly one active service task definition", () => {
-    expect(
-      validateService(
-        {
-          services: [
-            {
-              serviceName: env.ECS_SERVICE,
-              status: "ACTIVE",
-              taskDefinition: taskDefinitionArn
-            }
-          ],
-          failures: []
-        },
-        env.ECS_SERVICE
-      )
-    ).toBe(taskDefinitionArn);
+  it.each([null, taskDefinitionArn])(
+    "resolves the unique stable PRIMARY task definition with top-level task %j",
+    topLevelTaskDefinition => {
+      const response = validServiceResponse();
+      response.services[0].taskDefinition = topLevelTaskDefinition;
+
+      expect(validateService(response, env.ECS_SERVICE)).toBe(taskDefinitionArn);
+    }
+  );
+
+  it("accepts an omitted top-level task definition", () => {
+    const response = validServiceResponse();
+    delete (
+      response.services[0] as {
+        taskDefinition?: string | null;
+      }
+    ).taskDefinition;
+
+    expect(validateService(response, env.ECS_SERVICE)).toBe(taskDefinitionArn);
+  });
+
+  it("rejects a top-level task definition that disagrees with PRIMARY", () => {
+    const response = validServiceResponse();
+    response.services[0].taskDefinition =
+      "arn:aws:ecs:us-east-1:881424867096:task-definition/other:1";
+
+    expectInvalid(() => validateService(response, env.ECS_SERVICE));
   });
 
   it.each([
-    { services: [], failures: [] },
     {
-      services: [
-        {
-          serviceName: env.ECS_SERVICE,
-          status: "ACTIVE",
-          taskDefinition: taskDefinitionArn
-        },
-        {
-          serviceName: env.ECS_SERVICE,
-          status: "ACTIVE",
-          taskDefinition: taskDefinitionArn
-        }
-      ],
+      services: [],
       failures: []
     },
     {
+      ...validServiceResponse(),
       services: [
-        {
-          serviceName: env.ECS_SERVICE,
-          status: "DRAINING",
-          taskDefinition: taskDefinitionArn
-        }
-      ],
-      failures: []
+        validServiceResponse().services[0],
+        validServiceResponse().services[0]
+      ]
     },
     {
+      ...validServiceResponse(),
       services: [
         {
-          serviceName: env.ECS_SERVICE,
-          status: "ACTIVE",
-          taskDefinition: taskDefinitionArn
+          ...validServiceResponse().services[0],
+          status: "DRAINING"
         }
-      ],
+      ]
+    },
+    {
+      ...validServiceResponse(),
       failures: [{ arn: "redacted", reason: "MISSING" }]
     }
   ])("rejects missing, duplicate, inactive, or failed services", response => {
     expectInvalid(() => validateService(response, env.ECS_SERVICE));
+  });
+
+  it.each([
+    [
+      "services",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (response as { services?: unknown }).services;
+      }
+    ],
+    [
+      "failures",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (response as { failures?: unknown }).failures;
+      }
+    ],
+    [
+      "service name",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (
+          response.services[0] as {
+            serviceName?: string;
+          }
+        ).serviceName;
+      }
+    ],
+    [
+      "service status",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (
+          response.services[0] as {
+            status?: string;
+          }
+        ).status;
+      }
+    ]
+  ] as const)("rejects a missing %s field", (_name, mutate) => {
+    const response = validServiceResponse();
+    mutate(response);
+
+    expectInvalid(() => validateService(response, env.ECS_SERVICE));
+  });
+
+  it.each([
+    [
+      "missing deployments",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        (response.services[0] as { deployments?: unknown }).deployments =
+          undefined;
+      }
+    ],
+    [
+      "null deployments",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        (response.services[0] as { deployments: unknown }).deployments = null;
+      }
+    ],
+    [
+      "empty deployments",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments = [];
+      }
+    ],
+    [
+      "non-object deployment",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments.push(
+          null as unknown as (typeof response.services)[0]["deployments"][number]
+        );
+      }
+    ],
+    [
+      "no PRIMARY",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].status = "ACTIVE";
+      }
+    ],
+    [
+      "two PRIMARY deployments",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments.push({
+          ...response.services[0].deployments[0]
+        });
+      }
+    ],
+    [
+      "failed PRIMARY rollout",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].rolloutState = "FAILED";
+      }
+    ],
+    [
+      "in-progress PRIMARY rollout",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].rolloutState = "IN_PROGRESS";
+      }
+    ],
+    [
+      "running count mismatch",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].runningCount = 0;
+      }
+    ],
+    [
+      "desired count mismatch",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].desiredCount = 2;
+      }
+    ],
+    [
+      "zero desired tasks",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].runningCount = 0;
+        response.services[0].deployments[0].desiredCount = 0;
+      }
+    ],
+    [
+      "null running count",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].runningCount = null;
+      }
+    ],
+    [
+      "fractional desired count",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].runningCount = 1.5;
+        response.services[0].deployments[0].desiredCount = 1.5;
+      }
+    ],
+    [
+      "negative desired count",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].runningCount = -1;
+        response.services[0].deployments[0].desiredCount = -1;
+      }
+    ],
+    [
+      "missing rollout state",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (
+          response.services[0].deployments[0] as {
+            rolloutState?: string | null;
+          }
+        ).rolloutState;
+      }
+    ],
+    [
+      "missing running count",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (
+          response.services[0].deployments[0] as {
+            runningCount?: number | null;
+          }
+        ).runningCount;
+      }
+    ],
+    [
+      "missing desired count",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        delete (
+          response.services[0].deployments[0] as {
+            desiredCount?: number | null;
+          }
+        ).desiredCount;
+      }
+    ],
+    [
+      "null PRIMARY task definition",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].taskDefinition = null;
+      }
+    ],
+    [
+      "empty PRIMARY task definition",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].deployments[0].taskDefinition = "";
+      }
+    ],
+    [
+      "whitespace-padded PRIMARY task definition",
+      (response: ReturnType<typeof validServiceResponse>) => {
+        response.services[0].taskDefinition = null;
+        response.services[0].deployments[0].taskDefinition =
+          ` ${taskDefinitionArn} `;
+      }
+    ]
+  ] as const)("rejects %s", (_name, mutate) => {
+    const response = validServiceResponse();
+    response.services[0].taskDefinition = taskDefinitionArn;
+    mutate(response);
+
+    expectInvalid(() => validateService(response, env.ECS_SERVICE));
+  });
+
+  it("uses a fixed validation error without exposing the task definition ARN", () => {
+    const response = validServiceResponse();
+    response.services[0].deployments[0].rolloutState = "FAILED";
+
+    try {
+      validateService(response, env.ECS_SERVICE);
+      throw new Error("expected validateService to reject");
+    } catch (error) {
+      expect(error).toSatisfy(
+        (value: Error) =>
+          value.message === "Avatar S3 prerequisite validation failed." &&
+          !value.message.includes(taskDefinitionArn) &&
+          !value.message.includes("arn:")
+      );
+    }
   });
 
   it("requires the exact active task role and exact named container settings", () => {
@@ -1937,16 +2166,7 @@ describe("preflight orchestration", () => {
     const responses = new Map<string, unknown>([
       [
         "ecs describe-services",
-        {
-          services: [
-            {
-              serviceName: env.ECS_SERVICE,
-              status: "ACTIVE",
-              taskDefinition: taskDefinitionArn
-            }
-          ],
-          failures: []
-        }
+        validServiceResponse()
       ],
       ["ecs describe-task-definition", validTaskDefinition()],
       [
