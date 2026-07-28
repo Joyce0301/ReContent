@@ -141,7 +141,10 @@ export async function getAvatarUploadState(
               WHEN avatar_status IN ('not_uploaded', 'failed')
                 OR (
                   avatar_status = 'pending_upload'
-                  AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+                  AND (
+                    avatar_updated_at IS NULL
+                    OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+                  )
                 )
               THEN 1
               ELSE 0
@@ -185,7 +188,10 @@ export async function reserveAvatarUpload(input: {
          avatar_status IN ('not_uploaded', 'failed')
          OR (
            avatar_status = 'pending_upload'
-           AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+           AND (
+             avatar_updated_at IS NULL
+             OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+           )
          )
        )`,
     [input.stagingKey, input.userId]
@@ -209,7 +215,10 @@ export async function acquireAvatarConfirmationLease(input: {
          avatar_status = 'pending_upload'
          OR (
            avatar_status = 'confirming'
-           AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 30 SECOND
+           AND (
+             avatar_updated_at IS NULL
+             OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 30 SECOND
+           )
          )
        )`,
     [token, input.userId, input.stagingKey],

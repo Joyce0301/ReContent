@@ -529,6 +529,210 @@ describe("ECS task definition", () => {
       })
     );
   });
+
+  it.each([
+    "AWS_REGION",
+    "aws_region",
+    "AVATAR_S3_BUCKET",
+    "avatar_s3_bucket"
+  ])("rejects required runtime setting secret override %s", name => {
+    const response = validTaskDefinition();
+    Object.assign(response.taskDefinition.containerDefinitions[0], {
+      secrets: [
+        {
+          name,
+          valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/blocked"
+        }
+      ]
+    });
+
+    expectInvalid(() =>
+      validateTaskDefinition(response, {
+        containerName: "Main",
+        bucket,
+        runtimeRegion: "us-east-1",
+        taskRoleArn,
+        taskDefinitionArn
+      })
+    );
+  });
+
+  it("rejects case-insensitive duplicate environment names", () => {
+    const response = validTaskDefinition();
+    response.taskDefinition.containerDefinitions[0].environment.push({
+      name: "aws_region",
+      value: "us-west-2"
+    });
+
+    expectInvalid(() =>
+      validateTaskDefinition(response, {
+        containerName: "Main",
+        bucket,
+        runtimeRegion: "us-east-1",
+        taskRoleArn,
+        taskDefinitionArn
+      })
+    );
+  });
+
+  it("rejects duplicate secret names and mixed environment/secret names", () => {
+    const response = validTaskDefinition();
+    response.taskDefinition.containerDefinitions[0].environment.push({
+      name: "PORT",
+      value: "80"
+    });
+    Object.assign(response.taskDefinition.containerDefinitions[0], {
+      secrets: [
+        {
+          name: "port",
+          valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/port"
+        },
+        {
+          name: "DB_PASSWORD",
+          valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/db-a"
+        },
+        {
+          name: "db_password",
+          valueFrom: "arn:aws:ssm:us-east-1:881424867096:parameter/db-b"
+        }
+      ]
+    });
+
+    expectInvalid(() =>
+      validateTaskDefinition(response, {
+        containerName: "Main",
+        bucket,
+        runtimeRegion: "us-east-1",
+        taskRoleArn,
+        taskDefinitionArn
+      })
+    );
+  });
+
+  it.each([
+    [
+      "environment",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        response.taskDefinition.containerDefinitions[0].environment.push(
+          null as unknown as { name: string; value: string }
+        );
+      }
+    ],
+    [
+      "environment value",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        response.taskDefinition.containerDefinitions[0].environment.push(
+          { name: "PORT" } as unknown as { name: string; value: string }
+        );
+      }
+    ],
+    [
+      "environment name",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        response.taskDefinition.containerDefinitions[0].environment.push({
+          name: "   ",
+          value: "ignored"
+        });
+      }
+    ],
+    [
+      "whitespace-padded environment name",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        response.taskDefinition.containerDefinitions[0].environment.push({
+          name: " AWS_REGION",
+          value: "us-east-1"
+        });
+      }
+    ],
+    [
+      "environment name containing a space",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        response.taskDefinition.containerDefinitions[0].environment.push({
+          name: "AWS REGION",
+          value: "us-east-1"
+        });
+      }
+    ],
+    [
+      "secret",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [null]
+        });
+      }
+    ],
+    [
+      "secret valueFrom",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [{ name: "DB_PASSWORD" }]
+        });
+      }
+    ],
+    [
+      "blank secret valueFrom",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [{ name: "DB_PASSWORD", valueFrom: "   " }]
+        });
+      }
+    ],
+    [
+      "whitespace-padded secret valueFrom",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [
+            {
+              name: "DB_PASSWORD",
+              valueFrom:
+                " arn:aws:ssm:us-east-1:881424867096:parameter/password "
+            }
+          ]
+        });
+      }
+    ],
+    [
+      "whitespace-padded secret name",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [
+            {
+              name: "AVATAR_S3_BUCKET ",
+              valueFrom:
+                "arn:aws:ssm:us-east-1:881424867096:parameter/blocked"
+            }
+          ]
+        });
+      }
+    ],
+    [
+      "secret name containing a control character",
+      (response: ReturnType<typeof validTaskDefinition>) => {
+        Object.assign(response.taskDefinition.containerDefinitions[0], {
+          secrets: [
+            {
+              name: "DB\tPASSWORD",
+              valueFrom:
+                "arn:aws:ssm:us-east-1:881424867096:parameter/password"
+            }
+          ]
+        });
+      }
+    ]
+  ] as const)("fails closed for malformed %s entries", (_name, mutate) => {
+    const response = validTaskDefinition();
+    mutate(response);
+
+    expectInvalid(() =>
+      validateTaskDefinition(response, {
+        containerName: "Main",
+        bucket,
+        runtimeRegion: "us-east-1",
+        taskRoleArn,
+        taskDefinitionArn
+      })
+    );
+  });
 });
 
 describe("rendered ECS task definition", () => {
@@ -808,6 +1012,76 @@ describe("S3 bucket controls", () => {
         origin
       )
     );
+
+    for (const rules of [
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["POST", "PUT"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["POST"]
+        },
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["GET"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["POST"]
+        },
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["POST"]
+        }
+      ]
+    ]) {
+      expectInvalid(() => validateCors({ CORSRules: rules }, origin));
+    }
+
+    for (const rules of [
+      [],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["PUT"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["GET"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["HEAD"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin],
+          AllowedMethods: ["post"]
+        }
+      ],
+      [
+        {
+          AllowedOrigins: [origin, origin],
+          AllowedMethods: ["POST"]
+        }
+      ],
+      [null],
+      [{ AllowedOrigins: [origin] }],
+      [{ AllowedOrigins: [origin], AllowedMethods: [] }]
+    ]) {
+      expectInvalid(() => validateCors({ CORSRules: rules }, origin));
+    }
   });
 
   it("requires an enabled one-day original/pending lifecycle rule", () => {
@@ -2116,15 +2390,30 @@ describe("avatar deployment workflow gates", () => {
     with?: Record<string, string>;
   };
 
-  function workflowJobSteps(file: string, job: string) {
-    const workflow = parse(
-      readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8")
-    ) as {
-      jobs: Record<string, { steps: WorkflowStep[] }>;
+  type Workflow = {
+    concurrency?: {
+      group?: string;
+      "cancel-in-progress"?: boolean;
     };
+    jobs: Record<string, { steps: WorkflowStep[] }>;
+  };
 
-    return workflow.jobs[job].steps;
+  function loadWorkflow(file: string) {
+    return parse(
+      readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8")
+    ) as Workflow;
   }
+
+  function workflowJobSteps(file: string, job: string) {
+    return loadWorkflow(file).jobs[job].steps;
+  }
+
+  it("serializes every production deployment without cancellation", () => {
+    expect(loadWorkflow("deploy.yml").concurrency).toEqual({
+      group: "recontent-production-deploy",
+      "cancel-in-progress": false
+    });
+  });
 
   it("validates the rendered task definition after render and before deploy", () => {
     const steps = workflowJobSteps("deploy.yml", "deploy");
@@ -2156,7 +2445,9 @@ describe("avatar deployment workflow gates", () => {
       step => step.run === "npm run build"
     );
     const openNextIndex = steps.findIndex(
-      step => step.run === "npx --no-install opennextjs-cloudflare build"
+      step =>
+        step.run ===
+        "npx --no-install opennextjs-cloudflare build --skipNextBuild"
     );
     const dockerIndex = steps.findIndex(step =>
       step.run?.includes("docker build -t recontent:ci .")

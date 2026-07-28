@@ -67,7 +67,7 @@ jobs:
         run: npm run build
 
       - name: Build OpenNext artifact
-        run: npx --no-install opennextjs-cloudflare build
+        run: npx --no-install opennextjs-cloudflare build --skipNextBuild
 
       - name: Build Docker image
         run: docker build -t recontent:ci .

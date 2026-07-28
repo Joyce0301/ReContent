@@ -5,7 +5,8 @@
 This task resolves the final review findings for avatar upload reservation
 ordering, rate-limit isolation, ECS credential-chain safety, rendered task
 definition validation, OpenNext CI coverage, S3 CORS policy, real presigned POST
-policy coverage, and object-key segment safety.
+policy coverage, object-key segment safety, and the final adversarial edge-case
+follow-up.
 
 No frontend upload behavior, migration column design, live AWS resource, push, or
 Draft PR state was changed.
@@ -35,6 +36,27 @@ Draft PR state was changed.
   `status=ACTIVE`. Deploy validates the rendered file before deployment, and CI
   runs OpenNext after the standalone Next build. The script/workflow run reached
   158/158.
+- RED final adversarial follow-up: 24 expected failures in 221 focused tests
+  exposed required-setting secret overrides, malformed or duplicate ECS entries,
+  non-POST and duplicate CORS rules, NULL lease timestamps, missing production
+  deploy serialization, repeated Next builds, and unvalidated copy key pairs.
+- GREEN final adversarial follow-up: runtime entries now fail closed on malformed
+  shapes and case-insensitive duplicates; CORS is one exact production-origin
+  POST-only rule; NULL pending/confirming timestamps are safely recoverable in
+  all matching DB predicates; production deploys serialize without cancellation;
+  OpenNext reuses the completed Next build; and copy validates the deterministic
+  pending-to-confirmed key pair before SDK access. The focused run reached
+  221/221.
+- RED/GREEN malformed-entry follow-up: two additional tests in a 171-test
+  preflight suite showed that whitespace-only environment names and secret
+  `valueFrom` values were still accepted. Trim-aware shape validation produced
+  the final 171/171 GREEN.
+- RED/GREEN review hardening: independent review then exposed whitespace-padded
+  runtime names (2 failures in 173 tests), whitespace-padded secret references
+  (1 failure in 174 tests), and names containing spaces or control characters
+  (2 failures in 176 tests). Each failure was recorded before implementation;
+  canonical env-name and secret-reference validation produced the final 176/176
+  GREEN.
 
 ## Findings Fixed
 
@@ -45,26 +67,36 @@ Draft PR state was changed.
 - Legacy dry-run quota is isolated in `avatar-upload-dry-run` with max 20; real
   intent quota remains `avatar-upload-intent` with max 5.
 - Target ECS task definitions reject alternate/static AWS provider-chain
-  configuration from environment or secrets, case-insensitively, while retaining
-  the required standard `AWS_REGION`.
+  configuration from environment or secrets, case-insensitively. Required bucket
+  and region settings must be unique environment entries and cannot be shadowed
+  by secrets; all environment and secret entries are shape-checked, names use
+  the canonical env identifier form, and secret references reject surrounding
+  whitespace.
 - The live preflight remains after credential configuration and before ECR. A
   separate static rendered-task mode validates the exact task role, unique
   container, bucket, runtime region, legacy region absence, and credential-chain
   absence before the deploy action.
-- CI retains docs-only `paths-ignore` and Docker build while adding the OpenNext
-  build gate after Next.
-- All S3 CORS rules now require only the exact production origin, with at least
-  one POST rule.
+- CI retains docs-only `paths-ignore` and Docker build while running OpenNext
+  with `--skipNextBuild` after the standalone Next build.
+- Production branch, tag, and manual deployments share the static
+  `recontent-production-deploy` concurrency group with cancellation disabled.
+- S3 CORS now requires exactly one rule containing only the exact production
+  origin and only the uppercase `POST` method.
 - Real AWS SDK signing is covered without network access by decoding and checking
   the generated policy.
 - User and upload key segments are URL-safe, preventing ambiguous raw
   `CopySource` keys.
+- Pending upload and confirming lease rows with legacy/corrupt NULL timestamps
+  are recoverable using the same NULL-or-stale predicates in reads and CAS
+  updates.
+- Copy requests reject unsafe, mismatched, or direction-reversed key pairs with
+  a fixed typed error before any S3 SDK command.
 
 ## Dual Review
 
-- Independent code review completed with no code finding. Its commit gate was to
-  ensure the two new untracked requirement tests are included; they are part of
-  this task's staged scope.
+- Independent code review completed. A follow-up read-only review found that
+  whitespace-padded runtime names could evade malformed-entry handling; the
+  finding was reproduced RED and fixed.
 - Independent adversarial review completed. Its only must-fix claim was that
   sequential Next and OpenNext builds would contend on `.next/lock`. The reviewer
   and main process had run builds concurrently in the same worktree, producing
@@ -74,19 +106,27 @@ Draft PR state was changed.
 - The optional suggestion to avoid all presigning on concurrent final-CAS loss
   was not adopted: the required design explicitly presigns before the final CAS,
   and only deterministic active reservations must be blocked before S3.
+- The final adversarial follow-up identified six additional edge cases. All six
+  were implemented test-first and are covered by the final validation matrix.
+- The closing adversarial review found whitespace-padded secret references and
+  non-identifier runtime names. Both findings were reproduced RED and fixed.
+  Its suggestion to reject unrelated CORS fields was not adopted because the
+  requirement constrains rule count, origins, and methods; fields such as
+  `AllowedHeaders` may be valid for browser POST uploads and do not broaden the
+  allowed origin or method.
 
 ## Verification
 
 | Command | Result |
 | --- | --- |
-| Focused auth/avatar/preflight tests | PASS: 18 files, 426 tests |
-| CI-equivalent Vitest command | PASS: 34 files, 586 tests |
+| Focused auth/avatar/preflight tests | PASS: 18 files, 453 tests |
+| CI-equivalent Vitest command | PASS: 34 files, 613 tests |
 | `npm run lint` | PASS |
 | `npx tsc --noEmit --incremental false` | PASS |
 | `npm run build` | PASS |
-| `npx --no-install opennextjs-cloudflare build` | PASS after an exclusive sequential Next build; dependency bundle reports the existing non-fatal `-0 === 0` warning |
+| `npx --no-install opennextjs-cloudflare build --skipNextBuild` | PASS after the exclusive Next build; output confirms the Next build was skipped, and the dependency bundle reports the existing non-fatal `-0 === 0` warning |
 | `node --check scripts/verify-avatar-s3-prerequisites.mjs` | PASS |
-| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 158-test script/workflow suite |
+| Workflow YAML parse | PASS: both CI and deploy workflows parsed independently, in addition to the 176-test script/workflow suite |
 | `git diff --check` | PASS before staging |
 | `docker version` | ENVIRONMENT BLOCKED: Docker 29.4.0 client is installed, but the configured Colima socket does not exist |
 

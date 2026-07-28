@@ -189,6 +189,73 @@ describe("copyAvatarToConfirmed", () => {
       expect(aws.send).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    [
+      "space",
+      "original/pending/user 1/upload-1.webp",
+      "original/confirmed/user 1/upload-1.webp"
+    ],
+    [
+      "percent",
+      "original/pending/user-1/upload%1.webp",
+      "original/confirmed/user-1/upload%1.webp"
+    ],
+    [
+      "query",
+      "original/pending/user-1/upload?1.webp",
+      "original/confirmed/user-1/upload?1.webp"
+    ],
+    [
+      "fragment",
+      "original/pending/user-1/upload#1.webp",
+      "original/confirmed/user-1/upload#1.webp"
+    ],
+    [
+      "unicode",
+      "original/pending/用户-1/upload-1.webp",
+      "original/confirmed/用户-1/upload-1.webp"
+    ],
+    [
+      "different user",
+      "original/pending/user-1/upload-1.webp",
+      "original/confirmed/user-2/upload-1.webp"
+    ],
+    [
+      "different filename",
+      "original/pending/user-1/upload-1.webp",
+      "original/confirmed/user-1/upload-2.webp"
+    ],
+    [
+      "reversed direction",
+      "original/confirmed/user-1/upload-1.webp",
+      "original/pending/user-1/upload-1.webp"
+    ]
+  ])(
+    "rejects %s avatar key pairs before sending an SDK command",
+    async (_name, stagingKey, confirmedKey) => {
+      const { AvatarStoragePreconditionError } = await import(
+        "./storage-errors"
+      );
+      const { copyAvatarToConfirmed } = await loadStorage();
+
+      await expect(
+        copyAvatarToConfirmed({
+          stagingKey,
+          confirmedKey,
+          sourceETag: "\"source-etag\""
+        })
+      ).rejects.toSatisfy(
+        (error: Error) =>
+          error instanceof AvatarStoragePreconditionError &&
+          error.message ===
+            "Avatar object no longer matches the expected version" &&
+          !error.message.includes(stagingKey) &&
+          !error.message.includes(confirmedKey)
+      );
+      expect(aws.send).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("S3 error mapping", () => {

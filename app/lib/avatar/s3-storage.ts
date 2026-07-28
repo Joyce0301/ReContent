@@ -9,6 +9,7 @@ import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 
 import { MAX_AVATAR_SIZE_BYTES } from "./validation";
 import { getAvatarS3Config } from "./s3-config";
+import { parseAvatarStagingKey } from "./object-key";
 import {
   AvatarStorageConflictError,
   AvatarStorageNotFoundError,
@@ -150,6 +151,23 @@ export async function copyAvatarToConfirmed(input: {
   confirmedKey: string;
   sourceETag: string;
 }): Promise<void> {
+  const stagingUserId =
+    typeof input.stagingKey === "string"
+      ? input.stagingKey.split("/")[2] ?? ""
+      : "";
+  const parsedStagingKey =
+    typeof input.stagingKey === "string"
+      ? parseAvatarStagingKey(input.stagingKey, stagingUserId)
+      : null;
+
+  if (
+    typeof input.confirmedKey !== "string" ||
+    !parsedStagingKey ||
+    parsedStagingKey.confirmedKey !== input.confirmedKey
+  ) {
+    throw new AvatarStoragePreconditionError();
+  }
+
   if (
     typeof input.sourceETag !== "string" ||
     input.sourceETag.trim().length === 0

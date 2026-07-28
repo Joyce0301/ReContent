@@ -114,6 +114,12 @@ function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isRuntimeName(value) {
+  return (
+    typeof value === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value)
+  );
+}
+
 function asStringArray(value) {
   if (typeof value === "string" && value.length > 0) {
     return [value];
@@ -321,6 +327,25 @@ function validateTaskRuntime(task, expected) {
   if (secrets !== undefined && !Array.isArray(secrets)) {
     fail();
   }
+  if (
+    !environment.every(
+      item =>
+        isRecord(item) &&
+        isRuntimeName(item.name) &&
+        typeof item.value === "string"
+    ) ||
+    (Array.isArray(secrets) &&
+      !secrets.every(
+        item =>
+          isRecord(item) &&
+          isRuntimeName(item.name) &&
+          typeof item.valueFrom === "string" &&
+          item.valueFrom.trim().length > 0 &&
+          item.valueFrom === item.valueFrom.trim()
+      ))
+  ) {
+    fail();
+  }
 
   const exactValue = (name, expectedValue) => {
     const matches = environment.filter(
@@ -332,11 +357,11 @@ function validateTaskRuntime(task, expected) {
     ...environment,
     ...(Array.isArray(secrets) ? secrets : [])
   ];
+  const normalizedNames = runtimeEntries.map(item => item.name.toUpperCase());
+  if (new Set(normalizedNames).size !== normalizedNames.length) {
+    fail();
+  }
   const hasForbiddenName = runtimeEntries.some(item => {
-    if (!isRecord(item) || typeof item.name !== "string") {
-      return false;
-    }
-
     const normalizedName = item.name.toUpperCase();
     return (
       normalizedName === "AVATAR_S3_REGION" ||
@@ -448,28 +473,22 @@ export function validateEncryption(response) {
 export function validateCors(response, allowedOrigin) {
   if (
     !Array.isArray(response?.CORSRules) ||
-    !response.CORSRules.every(
-      rule =>
-        isRecord(rule) &&
-        Array.isArray(rule.AllowedOrigins) &&
-        rule.AllowedOrigins.every(origin => typeof origin === "string") &&
-        Array.isArray(rule.AllowedMethods) &&
-        rule.AllowedMethods.every(method => typeof method === "string")
-    )
+    response.CORSRules.length !== 1
   ) {
     fail();
   }
 
-  const allOriginsAreExact = response.CORSRules.every(
-    rule =>
-      rule.AllowedOrigins.length === 1 &&
-      rule.AllowedOrigins[0] === allowedOrigin
-  );
-  const hasExactPostRule = response.CORSRules.some(rule =>
-    rule.AllowedMethods.includes("POST")
-  );
+  const rule = response.CORSRules[0];
 
-  if (!allOriginsAreExact || !hasExactPostRule) {
+  if (
+    !isRecord(rule) ||
+    !Array.isArray(rule.AllowedOrigins) ||
+    rule.AllowedOrigins.length !== 1 ||
+    rule.AllowedOrigins[0] !== allowedOrigin ||
+    !Array.isArray(rule.AllowedMethods) ||
+    rule.AllowedMethods.length !== 1 ||
+    rule.AllowedMethods[0] !== "POST"
+  ) {
     fail();
   }
 }
