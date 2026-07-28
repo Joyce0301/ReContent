@@ -986,6 +986,197 @@ describe("IAM policy documents", () => {
       )
     );
   });
+
+  it.each([
+    [
+      "bucket",
+      "s3:GetBucketCors",
+      "arn:aws:s3:::unrelated-avatar-bucket"
+    ],
+    [
+      "role",
+      "iam:GetRolePolicy",
+      "arn:aws:iam::881424867096:role/unrelated-role"
+    ],
+    [
+      "service",
+      "ecs:DescribeServices",
+      "arn:aws:ecs:us-east-1:881424867096:service/default/unrelated-service"
+    ]
+  ])("allows an otherwise valid policy with a disjoint %s deny", (
+    _name,
+    action,
+    resource
+  ) => {
+    expect(
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Deny",
+              Action: action,
+              Resource: resource
+            }
+          }
+        ],
+        deployReadResources()
+      )
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["exact required resource", bucketArn],
+    ["wildcard covering the required resource", "arn:aws:s3:::recontent-avatar-*"],
+    ["all resources", "*"],
+    ["mixed resources with a partial overlap", [
+      "arn:aws:s3:::unrelated-avatar-bucket",
+      bucketArn
+    ]]
+  ])("rejects a bucket deny on %s", (_name, resource) => {
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Deny",
+              Action: "s3:GetBucketCors",
+              Resource: resource
+            }
+          }
+        ],
+        deployReadResources()
+      )
+    );
+  });
+
+  it.each([
+    {
+      Effect: "Deny",
+      NotAction: "iam:DeleteRole",
+      Resource: taskRoleArn
+    },
+    {
+      Effect: "Deny",
+      Action: "iam:GetRolePolicy",
+      NotResource: "arn:aws:iam::881424867096:role/unrelated-role"
+    },
+    {
+      Effect: "Deny",
+      Action: "s3:GetBucketCors",
+      Resource: "arn:aws:s3:::${aws:PrincipalTag/bucket}"
+    }
+  ])("fails closed for an uninterpretable deny scope", statement => {
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [scopedDeployPolicy(), { Statement: statement }],
+        deployReadResources()
+      )
+    );
+  });
+
+  it.each([
+    [
+      "an action array containing the required action",
+      {
+        Effect: "Deny",
+        Action: ["s3:DeleteBucket", "s3:GetBucketCors"],
+        Resource: bucketArn
+      }
+    ],
+    [
+      "a single-character resource wildcard covering the target",
+      {
+        Effect: "Deny",
+        Action: "s3:GetBucketCors",
+        Resource: "arn:aws:s3:::recontent-avatar-pipeline-2026072?"
+      }
+    ],
+    [
+      "a malformed resource",
+      {
+        Effect: "Deny",
+        Action: "s3:GetBucketCors",
+        Resource: "not-an-arn"
+      }
+    ],
+    [
+      "a conditioned overlap",
+      {
+        Effect: "Deny",
+        Action: "s3:GetBucketCors",
+        Resource: bucketArn,
+        Condition: {
+          StringEquals: {
+            "aws:PrincipalTag/environment": "unknown"
+          }
+        }
+      }
+    ],
+    [
+      "case-variant action overlap",
+      {
+        Effect: "Deny",
+        Action: "S3:GetBucketCors",
+        Resource: bucketArn
+      }
+    ],
+    [
+      "an all-action deny with an otherwise unrelated resource",
+      {
+        Effect: "Deny",
+        Action: "*",
+        Resource: "arn:aws:s3:::unrelated-avatar-bucket"
+      }
+    ]
+  ])("fails closed for %s", (_name, statement) => {
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [scopedDeployPolicy(), { Statement: statement }],
+        deployReadResources()
+      )
+    );
+  });
+
+  it("allows a deny action array that cannot match a required read", () => {
+    expect(
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Deny",
+              Action: ["s3:DeleteBucket", "iam:DeleteRole"],
+              Resource: "*"
+            }
+          }
+        ],
+        deployReadResources()
+      )
+    ).toBeUndefined();
+  });
+
+  it.each([
+    "*",
+    "arn:aws:ecs:us-east-1:881424867096:task-definition/unrelated:1"
+  ])("fails closed for a star-only action deny on %s", resource => {
+    expectInvalid(() =>
+      validateDeployRoleReadPolicies(
+        [
+          scopedDeployPolicy(),
+          {
+            Statement: {
+              Effect: "Deny",
+              Action: "ecs:DescribeTaskDefinition",
+              Resource: resource
+            }
+          }
+        ],
+        deployReadResources()
+      )
+    );
+  });
 });
 
 describe("IAM role policy listings", () => {

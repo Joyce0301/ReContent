@@ -44,7 +44,17 @@ The preflight was developed test-first with an injected `aws(args)` boundary.
 - GREEN: only `ecs:DescribeTaskDefinition` permits `Resource: "*"`,
   `iam:SimulatePrincipalPolicy` requires the exact task-role ARN, and legacy
   `AVATAR_S3_REGION` is rejected from both environment and secrets. The final
-  focused suite passes 103/103 tests.
+  review-fix suite passed 103/103 tests.
+- RED: the second follow-up review added 12 resource-aware Deny cases. Three
+  disjoint bucket, role, and ECS service Deny cases failed in a 115-test run
+  because Deny evaluation considered only the action.
+- GREEN: Deny evaluation now checks whether a valid ARN pattern can overlap a
+  required resource. Exact, wildcard, all-resource, mixed partial overlap,
+  policy-variable/malformed scope, `NotAction`, `NotResource`, and any
+  star-only action Deny remain fail closed. The focused suite passed 115/115.
+- GREEN coverage hardening: explicit Action-array, `?` wildcard, Condition,
+  case-variant, malformed resource, and `Action: "*"` tests bring the final
+  focused suite to 122/122.
 
 The final suite covers `Action`, `Resource`, `NotAction`, and `NotResource`
 wildcards; inline and attached policy enumeration; explicit pagination failure;
@@ -72,13 +82,17 @@ inside/outside-prefix simulations.
   rejection to ECS secrets.
 - Both follow-up reviewers approved the final 103-test implementation with no
   remaining finding.
+- The resource-aware Deny fix passed independent code review without findings.
+  Adversarial review requested explicit tests for six additional IAM forms;
+  those tests were added, and the re-review approved the final 122-test suite
+  with no remaining finding.
 
 ## Verification
 
 | Command | Result |
 | --- | --- |
-| `npx vitest run scripts/verify-avatar-s3-prerequisites.test.ts` | PASS: 1 file, 103 tests |
-| CI-equivalent `npx vitest run ...` command from `.github/workflows/ci.yml` | PASS: 32 files, 502 tests |
+| `npx vitest run scripts/verify-avatar-s3-prerequisites.test.ts` | PASS: 1 file, 122 tests |
+| CI-equivalent `npx vitest run ...` command from `.github/workflows/ci.yml` | PASS: 32 files, 521 tests |
 | `npm run lint` | PASS |
 | `node --check scripts/verify-avatar-s3-prerequisites.mjs` | PASS |
 | `npx tsc --noEmit --incremental false` | PASS |

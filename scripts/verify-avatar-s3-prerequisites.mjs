@@ -668,6 +668,46 @@ function statementProvidesDeployRead(statement, action, allowedResources) {
   );
 }
 
+function isInterpretableDenyResource(resource) {
+  if (resource === "*") {
+    return true;
+  }
+  if (resource.includes("${")) {
+    return false;
+  }
+
+  const arnParts = resource.split(":");
+  return (
+    arnParts.length >= 6 &&
+    arnParts[0] === "arn" &&
+    arnParts[1].length > 0 &&
+    arnParts[2].length > 0 &&
+    arnParts.slice(5).join(":").length > 0
+  );
+}
+
+function denyCouldOverlapDeployRead(statement, action, requiredResources) {
+  if (
+    statement.Effect !== "Deny" ||
+    !statementMatchesAction(statement, action)
+  ) {
+    return false;
+  }
+
+  if (STAR_ONLY_DEPLOY_READ_ACTIONS.has(action.toLowerCase())) {
+    return true;
+  }
+
+  const deniedResources = statementResources(statement);
+  if (!deniedResources.every(isInterpretableDenyResource)) {
+    return true;
+  }
+
+  return deniedResources.some(pattern =>
+    requiredResources.some(resource => wildcardMatches(pattern, resource))
+  );
+}
+
 export function validateDeployRoleReadPolicies(
   documents,
   requiredResources = {}
@@ -706,10 +746,12 @@ export function validateDeployRoleReadPolicies(
       fail();
     }
 
-    const denied = statements.some(
-      statement =>
-        statement.Effect === "Deny" &&
-        statementMatchesAction(statement, requiredAction)
+    const denied = statements.some(statement =>
+      denyCouldOverlapDeployRead(
+        statement,
+        requiredAction,
+        actionResources
+      )
     );
     const allowed = actionResources.every(expectedResource =>
       statements.some(
