@@ -1,12 +1,16 @@
 export type AvatarStatus =
   | "not_uploaded"
   | "pending_upload"
+  | "confirming"
+  | "uploaded"
   | "ready"
   | "failed";
 
 const AVATAR_STATUSES: readonly AvatarStatus[] = [
   "not_uploaded",
   "pending_upload",
+  "confirming",
+  "uploaded",
   "ready",
   "failed"
 ];

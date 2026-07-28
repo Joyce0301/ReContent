@@ -51,16 +51,23 @@ jobs:
             app/api/repurpose/*.test.ts \
             app/api/auth/*/route.test.ts \
             app/api/profile/avatar/route.test.ts \
+            app/api/profile/avatar/upload-intent/route.test.ts \
+            app/api/profile/avatar/confirm/route.test.ts \
             app/lib/auth/*.test.ts \
             app/lib/avatar/*.test.ts \
+            app/lib/http/*.test.ts \
             app/components/recontent/header.test.tsx \
             app/profile/*.test.tsx \
             app/workspace/*.test.tsx \
             app/page.test.tsx \
+            scripts/verify-avatar-s3-prerequisites.test.ts \
             --exclude app/api/repurpose/content-extraction.live.test.ts
 
       - name: Build
         run: npm run build
+
+      - name: Build OpenNext artifact
+        run: npx --no-install opennextjs-cloudflare build --skipNextBuild
 
       - name: Build Docker image
         run: docker build -t recontent:ci .

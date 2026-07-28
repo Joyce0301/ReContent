@@ -16,6 +16,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: recontent-production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -26,6 +30,13 @@ jobs:
       ECS_CLUSTER: default
       ECS_SERVICE: recontent-b13f
       ECS_CONTAINER_NAME: Main
+      AVATAR_S3_BUCKET: recontent-avatar-pipeline-20260726
+      EXPECTED_AVATAR_RUNTIME_REGION: us-east-1
+      EXPECTED_AVATAR_TASK_ROLE_ARN: arn:aws:iam::881424867096:role/recontent-ecs-task-role
+      AVATAR_TASK_ROLE_NAME: recontent-ecs-task-role
+      AVATAR_TASK_POLICY_NAME: recontent-avatar-originals-access
+      GITHUB_DEPLOY_ROLE_NAME: github-actions-recontent-deploy
+      AVATAR_ALLOWED_ORIGIN: https://re-6718725ab2374d34942ac6eee4abd640.ecs.us-east-1.on.aws
 
     steps:
       - name: Checkout repository
@@ -48,6 +59,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::881424867096:role/github-actions-recontent-deploy
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify avatar S3 deployment prerequisites
+        run: node scripts/verify-avatar-s3-prerequisites.mjs
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -105,19 +119,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          TASK_DEFINITION=$(aws ecs describe-services \
+          if ! TASK_DEFINITION=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE" \
             --query "services[0].deployments[?status=='PRIMARY'] | [0].taskDefinition" \
-            --output text)
-
-          echo "Resolved task definition: $TASK_DEFINITION"
+            --output text 2>/dev/null); then
+            TASK_DEFINITION=""
+          fi
 
           if [ -z "$TASK_DEFINITION" ] || [ "$TASK_DEFINITION" = "None" ]; then
-            echo "Failed to resolve ECS task definition for service $ECS_SERVICE in cluster $ECS_CLUSTER"
-            aws ecs describe-services \
-              --cluster "$ECS_CLUSTER" \
-              --services "$ECS_SERVICE"
+            echo "Failed to resolve ECS task definition" >&2
             exit 1
           fi
 
@@ -132,6 +143,9 @@ jobs:
           image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image-meta.outputs.short-sha-tag }}
           environment-variables: |
             PORT=80
+
+      - name: Verify rendered avatar S3 task definition
+        run: node scripts/verify-avatar-s3-prerequisites.mjs --rendered-task-definition "${{ steps.render-task-def.outputs.task-definition }}"
 
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2

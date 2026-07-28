@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_key VARCHAR(512) NULL,
   avatar_status VARCHAR(32) NOT NULL DEFAULT 'not_uploaded',
   avatar_updated_at DATETIME NULL,
+  avatar_confirmation_token CHAR(36) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
