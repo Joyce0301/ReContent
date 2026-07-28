@@ -30,17 +30,22 @@ Also set:
 
 - **Fresh database:** Apply [mysql-auth-schema.sql](mysql-auth-schema.sql) before
   enabling the auth routes. The current schema already includes the avatar
-  columns, so do not run the avatar migration afterward.
+  metadata and nullable confirmation-token columns, so do not run either avatar
+  migration afterward.
 - **Existing database:** If the `users` table predates the avatar columns, run
-  the guarded migration below before relying on avatar metadata.
+  both guarded migrations below, in order, before enabling S3 avatar uploads.
 
 ## Avatar metadata migration
 
 For an existing database, run the
 [2026-07-26 avatar metadata migration](migrations/2026-07-26-add-avatar-metadata.sql)
-before any application phase relies on the new columns. The migration guards
-each column independently, so it is safe to rerun after a complete execution or
-an interrupted partial execution.
+and then the
+[2026-07-27 confirmation-token migration](migrations/2026-07-27-add-avatar-confirmation-token.sql)
+before any application phase relies on the new columns. Both migrations are
+guarded, so they are safe to rerun after a complete execution or an interrupted
+partial execution. `avatar_confirmation_token` must remain nullable: it is set
+only while a confirmation lease is owned and is cleared on reservation,
+completion, or failure.
 
 Core user reads in this app revision first select the avatar columns, then retry
 the legacy query only when MySQL reports one of those avatar columns as missing.
@@ -61,9 +66,18 @@ MYSQL_PWD="$MYSQL_PASSWORD" mysql \
   --ssl-mode=VERIFY_IDENTITY \
   --ssl-ca="$MYSQL_SSL_CA_PATH" \
   < docs/auth/migrations/2026-07-26-add-avatar-metadata.sql
+
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" \
+  < docs/auth/migrations/2026-07-27-add-avatar-confirmation-token.sql
 ```
 
-Verify that all three columns exist in the selected database:
+Verify that all four columns exist in the selected database:
 
 ```bash
 MYSQL_PWD="$MYSQL_PASSWORD" mysql \
@@ -77,21 +91,101 @@ SELECT column_name, column_type, is_nullable, column_default
 FROM information_schema.columns
 WHERE table_schema = DATABASE()
   AND table_name = 'users'
-  AND column_name IN ('avatar_key', 'avatar_status', 'avatar_updated_at')
+  AND column_name IN (
+    'avatar_key',
+    'avatar_status',
+    'avatar_updated_at',
+    'avatar_confirmation_token'
+  )
 ORDER BY FIELD(
   column_name,
   'avatar_key',
   'avatar_status',
-  'avatar_updated_at'
+  'avatar_updated_at',
+  'avatar_confirmation_token'
 );
 SQL
 ```
 
-A rollback script exists at
-`docs/auth/migrations/2026-07-26-add-avatar-metadata.rollback.sql`. Its
-per-column guards make repeated and partial rollback attempts safe, but it still
-drops the avatar columns and their data. Use it only after the application has
-already been rolled back to a revision that does not query these columns.
+Rollback scripts exist beside both migrations. Roll back the confirmation-token
+column first, and only after every application revision that references it has
+been drained. The metadata rollback drops avatar data; use it only after the
+application is on a revision that does not query those columns.
+
+## Confirmation concurrency
+
+Avatar confirmation uses a database lease rather than a process-local lock.
+Acquiring or reacquiring a lease writes a fresh
+`avatar_confirmation_token`. Every completion or leased failure is a
+compare-and-swap update fenced by that same token. A stale request whose lease
+was replaced cannot complete or fail the newer owner's work.
+
+`pending_upload` reservations can be reclaimed after five minutes, while a
+`confirming` lease can be reacquired after 30 seconds. MySQL
+`UTC_TIMESTAMP()` is authoritative for both windows; application clocks do not
+decide lease ownership.
+
+## ECS avatar storage prerequisites
+
+The S3 avatar path is supported only by the Node.js application running on ECS
+in this phase. Cloudflare/OpenNext remains a build target, but is not an
+approved runtime for these avatar endpoints.
+
+Configure the ECS application container with:
+
+- `AVATAR_S3_BUCKET`
+- standard `AWS_REGION`
+
+There is no `AVATAR_S3_REGION` fallback. `AWS_REGION` is both the AWS SDK client
+region and the runtime value checked before deployment.
+
+The application imports `@aws-sdk/client-s3` and
+`@aws-sdk/s3-presigned-post` directly. S3 code carries the `server-only`
+boundary marker and must not enter a browser bundle. Do not configure static
+AWS access keys: the SDK must use the ECS task credential provider.
+
+The ECS **task role** supplies application S3 permissions. The ECS
+**execution role** is used by the ECS agent for activities such as image pulls
+and cannot substitute for `taskRoleArn`. The named task-role policy must allow:
+
+- `s3:PutObject` and `s3:GetObject` only under
+  `arn:aws:s3:::<bucket>/original/*`
+- `s3:ListBucket` on `arn:aws:s3:::<bucket>` with an `s3:prefix` condition
+  restricted to `original/*`
+
+The bucket must have all four public-access-block controls enabled,
+`BucketOwnerEnforced` object ownership, default SSE-S3 encryption using
+`AES256`, a CORS rule that allows `POST` from the exact production origin, and
+an enabled one-day expiration rule for `original/pending/`.
+
+The deploy workflow runs the read-only
+`scripts/verify-avatar-s3-prerequisites.mjs` gate after OIDC credential setup
+and before ECR login. Before rollout, manually confirm that both inline and
+attached policies on `github-actions-recontent-deploy` permit:
+
+```text
+ecs:DescribeServices
+ecs:DescribeTaskDefinition
+s3:GetBucketPublicAccessBlock
+s3:GetBucketCors
+s3:GetLifecycleConfiguration
+s3:GetBucketOwnershipControls
+s3:GetEncryptionConfiguration
+iam:GetRolePolicy
+iam:ListRolePolicies
+iam:ListAttachedRolePolicies
+iam:GetPolicy
+iam:GetPolicyVersion
+iam:SimulatePrincipalPolicy
+```
+
+Each allow must cover the current ECS service/task definition, avatar bucket,
+task/deploy roles, and attached managed policies that the command reads; use
+`Resource: "*"` only where a coarse read scope is required. This read scope is
+a hard deployment gate. The role also retains its existing ECR push and ECS
+deployment permissions. Broad externally managed deployment attachments are a
+residual rollout risk and must be reviewed separately; this change does not
+claim that the deploy role is least-privilege.
 
 ## ECS / AWS notes
 
@@ -121,7 +215,8 @@ already been rolled back to a revision that does not query these columns.
 
 ## Runtime target
 
-This MySQL auth path is intended for Node.js server deployments such as AWS ECS.
-If you later want to run the auth flow on Cloudflare Workers, add a Cloudflare-
-compatible database transport such as Hyperdrive instead of assuming the ECS
-configuration will carry over unchanged.
+This MySQL auth and avatar-storage path is intended for the Node.js server on
+AWS ECS. If you later want to run it on Cloudflare Workers, add a
+Cloudflare-compatible database transport such as Hyperdrive and a separately
+reviewed object-storage integration instead of assuming the ECS configuration
+will carry over unchanged.

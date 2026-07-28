@@ -26,6 +26,13 @@ jobs:
       ECS_CLUSTER: default
       ECS_SERVICE: recontent-b13f
       ECS_CONTAINER_NAME: Main
+      AVATAR_S3_BUCKET: recontent-avatar-pipeline-20260726
+      EXPECTED_AVATAR_RUNTIME_REGION: us-east-1
+      EXPECTED_AVATAR_TASK_ROLE_ARN: arn:aws:iam::881424867096:role/recontent-ecs-task-role
+      AVATAR_TASK_ROLE_NAME: recontent-ecs-task-role
+      AVATAR_TASK_POLICY_NAME: recontent-avatar-originals-access
+      GITHUB_DEPLOY_ROLE_NAME: github-actions-recontent-deploy
+      AVATAR_ALLOWED_ORIGIN: https://re-6718725ab2374d34942ac6eee4abd640.ecs.us-east-1.on.aws
 
     steps:
       - name: Checkout repository
@@ -48,6 +55,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::881424867096:role/github-actions-recontent-deploy
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify avatar S3 deployment prerequisites
+        run: node scripts/verify-avatar-s3-prerequisites.mjs
 
       - name: Login to Amazon ECR
         id: login-ecr
