@@ -14,9 +14,22 @@ import { AvatarUploadControl } from "./avatar-upload-control";
 
 const createObjectURLMock = vi.fn();
 const revokeObjectURLMock = vi.fn();
-const dryRunSuccessBody = {
-  validation: { status: "ready_for_storage" },
-  message: "头像信息已通过校验，图片尚未上传或保存"
+const uploadIntentBody = {
+  upload: {
+    url: "https://avatar-bucket.s3.amazonaws.com/",
+    fields: {
+      key: "staging/users/user-1/avatar.png",
+      policy: "signed-policy",
+      "x-amz-signature": "signed-value"
+    },
+    expiresAt: "2026-07-29T12:00:00.000Z"
+  },
+  objectKey: "staging/users/user-1/avatar.png"
+} as const;
+
+const confirmBody = {
+  status: "uploaded",
+  confirmedKey: "staging/users/user-1/avatar.png"
 } as const;
 
 function createFile(
@@ -38,6 +51,10 @@ function jsonResponse(status: number, body: unknown) {
     status,
     json: vi.fn().mockResolvedValue(body)
   };
+}
+
+function statusResponse(status: number) {
+  return { status };
 }
 
 describe("AvatarUploadControl", () => {
@@ -95,7 +112,7 @@ describe("AvatarUploadControl", () => {
 
     const input = screen.getByLabelText("选择头像文件");
     const chooser = screen.getByText("选择头像文件");
-    const submitButton = screen.getByRole("button", { name: "准备头像" });
+    const submitButton = screen.getByRole("button", { name: "上传头像" });
     const form = submitButton.closest("form");
 
     expect(input.className).toContain("peer");
@@ -151,33 +168,54 @@ describe("AvatarUploadControl", () => {
     expect(screen.getByText("已验证，等待准备")).toBeTruthy();
   });
 
-  it("posts only validated file metadata", async () => {
+  it("uploads the selected file through intent, S3, and confirm in order", async () => {
+    const file = createFile("portrait.jpeg", "image/jpeg", 2048);
     const fetchMock = vi
       .mocked(fetch)
-      .mockResolvedValue(jsonResponse(200, dryRunSuccessBody) as never);
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockResolvedValueOnce(jsonResponse(200, confirmBody) as never);
+
     render(
       <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
     );
-    selectFile(createFile("portrait.jpeg", "image/jpeg", 2048));
+    selectFile(file);
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    expect(await screen.findAllByText("原图已上传，等待处理")).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith("/api/profile/avatar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: expect.any(AbortSignal),
-      body: JSON.stringify({
-        fileName: "portrait.jpeg",
-        contentType: "image/jpeg",
-        sizeBytes: 2048
-      })
+    const intentOptions = fetchMock.mock.calls[0]?.[1];
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/profile/avatar/upload-intent"
+    );
+    expect(JSON.parse(String(intentOptions?.body))).toEqual({
+      fileName: "portrait.jpeg",
+      contentType: "image/jpeg",
+      sizeBytes: 2048
     });
-    const requestBody = String(fetchMock.mock.calls[0]?.[1]?.body);
-    expect(requestBody).not.toContain("blob:");
-    expect(requestBody).not.toContain("objectKey");
-    expect(requestBody).not.toContain("avatarKey");
-    expect(requestBody).not.toContain("updatedAt");
+    expect(JSON.parse(String(intentOptions?.body))).not.toHaveProperty(
+      "extension"
+    );
+
+    const s3Options = fetchMock.mock.calls[1]?.[1];
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(uploadIntentBody.upload.url);
+    expect(s3Options?.body).toBeInstanceOf(FormData);
+    expect(s3Options?.headers).toBeUndefined();
+    expect(Array.from((s3Options?.body as FormData).entries())).toEqual([
+      ["key", uploadIntentBody.upload.fields.key],
+      ["policy", uploadIntentBody.upload.fields.policy],
+      ["x-amz-signature", uploadIntentBody.upload.fields["x-amz-signature"]],
+      ["file", file]
+    ]);
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/profile/avatar/confirm");
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      objectKey: uploadIntentBody.objectKey
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => url === "/api/profile/avatar")
+    ).toBe(false);
   });
 
   it("disables duplicate submission while a request is pending", async () => {
@@ -193,7 +231,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    const submitButton = screen.getByRole("button", { name: "准备头像" });
+    const submitButton = screen.getByRole("button", { name: "上传头像" });
     fireEvent.click(submitButton);
     fireEvent.click(submitButton);
 
@@ -201,7 +239,7 @@ describe("AvatarUploadControl", () => {
     expect(screen.getByText("正在准备头像")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    resolveFetch?.(jsonResponse(200, dryRunSuccessBody));
+    resolveFetch?.(jsonResponse(200, uploadIntentBody));
     await waitFor(() => expect(screen.getByText("待接入 S3")).toBeTruthy());
   });
 
@@ -214,7 +252,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const signal = fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal;
@@ -226,47 +264,51 @@ describe("AvatarUploadControl", () => {
     expect(signal.aborted).toBe(true);
   });
 
-  it("shows the pending-S3 status and exact dry-run message after 200", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      jsonResponse(200, dryRunSuccessBody) as never
-    );
+  it("shows uploaded feedback after confirmed upload", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockResolvedValueOnce(jsonResponse(200, confirmBody) as never);
     render(
       <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
-    expect(await screen.findByText("待接入 S3")).toBeTruthy();
-    expect(
-      screen.getByText("头像信息已通过校验，图片尚未上传或保存")
-    ).toBeTruthy();
-    expect(screen.queryByText(/上传成功|保存成功|图片已上传|图片已保存/)).toBeNull();
+    expect(await screen.findAllByText("原图已上传，等待处理")).toHaveLength(2);
   });
 
-  it("blocks repeat submission after dry-run success until a new file is selected", async () => {
+  it("blocks repeat submission after confirmed upload until a new file is selected", async () => {
     const fetchMock = vi
       .mocked(fetch)
-      .mockResolvedValue(jsonResponse(200, dryRunSuccessBody) as never);
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockResolvedValueOnce(jsonResponse(200, confirmBody) as never)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockResolvedValueOnce(jsonResponse(200, confirmBody) as never);
     render(
       <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
     );
     selectFile(createFile("first.png"));
 
-    const submitButton = screen.getByRole("button", { name: "准备头像" });
+    const submitButton = screen.getByRole("button", { name: "上传头像" });
     const form = submitButton.closest("form");
     fireEvent.click(submitButton);
 
-    await screen.findByText("待接入 S3");
+    await waitFor(() =>
+      expect(screen.getAllByText("原图已上传，等待处理")).toHaveLength(2)
+    );
     expect((submitButton as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.submit(form as HTMLFormElement);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     selectFile(createFile("second.png"));
     expect((submitButton as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(submitButton);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
   });
 
   it.each([
@@ -280,7 +322,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       expectedMessage
@@ -296,7 +338,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "登录已过期，请重新登录"
@@ -325,7 +367,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       expectedMessage
@@ -339,7 +381,7 @@ describe("AvatarUploadControl", () => {
     );
     selectFile(createFile());
 
-    fireEvent.click(screen.getByRole("button", { name: "准备头像" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
       "网络连接失败，请稍后再试"
