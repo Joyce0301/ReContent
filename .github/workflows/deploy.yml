@@ -54,6 +54,17 @@ jobs:
       - name: Build app
         run: npm run build
 
+      - name: Install avatar Lambda dependencies
+        run: npm ci --prefix lambda/avatar-processor
+
+      - name: Test avatar Lambda
+        run: |
+          npm test --prefix lambda/avatar-processor
+          npm run typecheck --prefix lambda/avatar-processor
+
+      - name: Build avatar Lambda ZIP
+        run: npm run build:zip --prefix lambda/avatar-processor
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

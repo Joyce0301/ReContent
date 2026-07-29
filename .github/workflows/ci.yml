@@ -64,6 +64,14 @@ jobs:
             scripts/verify-avatar-s3-prerequisites.test.ts \
             --exclude app/api/repurpose/content-extraction.live.test.ts
 
+      # Keep this before Lambda install so ECS builds cannot depend on
+      # lambda/avatar-processor/node_modules by accident.
+      - name: Build
+        run: npm run build
+
+      - name: Build OpenNext artifact
+        run: npx --no-install opennextjs-cloudflare build --skipNextBuild
+
       - name: Install avatar Lambda dependencies
         run: npm ci --prefix lambda/avatar-processor
 
@@ -74,12 +82,6 @@ jobs:
 
       - name: Build avatar Lambda ZIP
         run: npm run build:zip --prefix lambda/avatar-processor
-
-      - name: Build
-        run: npm run build
-
-      - name: Build OpenNext artifact
-        run: npx --no-install opennextjs-cloudflare build --skipNextBuild
 
       - name: Build Docker image
         run: docker build -t recontent:ci .
