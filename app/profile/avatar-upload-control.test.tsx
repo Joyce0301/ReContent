@@ -257,10 +257,75 @@ describe("AvatarUploadControl", () => {
 
     expect((submitButton as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("正在准备头像")).toBeTruthy();
+    const chooser = screen.getByText("选择头像文件");
+    expect(screen.getByLabelText("选择头像文件")).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(chooser.getAttribute("aria-disabled")).toBe("true");
+    expect(chooser.className).toContain("cursor-not-allowed");
+    expect(chooser.className).toContain("opacity-60");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     resolveFetch?.(jsonResponse(200, uploadIntentBody));
-    await waitFor(() => expect(screen.getByText("待接入 S3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("正在上传原图")).toBeTruthy());
+  });
+
+  it("shows upload-original feedback and disables controls while S3 is pending", async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockImplementationOnce(() => new Promise(() => {}) as never);
+    render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    expect(await screen.findByText("正在上传原图")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("选择头像文件")).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(screen.getByRole("button", { name: "上传头像" })).toHaveProperty(
+      "disabled",
+      true
+    );
+    const chooser = screen.getByText("选择头像文件");
+    expect(chooser.getAttribute("aria-disabled")).toBe("true");
+    expect(chooser.className).toContain("cursor-not-allowed");
+    expect(chooser.className).toContain("opacity-60");
+  });
+
+  it("shows confirming feedback and disables controls while confirmation is pending", async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockImplementationOnce(() => new Promise(() => {}) as never);
+    render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    expect(await screen.findByText("正在确认上传")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText("选择头像文件")).toHaveProperty(
+      "disabled",
+      true
+    );
+    expect(screen.getByRole("button", { name: "上传头像" })).toHaveProperty(
+      "disabled",
+      true
+    );
+    const chooser = screen.getByText("选择头像文件");
+    expect(chooser.getAttribute("aria-disabled")).toBe("true");
+    expect(chooser.className).toContain("cursor-not-allowed");
+    expect(chooser.className).toContain("opacity-60");
   });
 
   it("aborts the pending request on unmount", async () => {

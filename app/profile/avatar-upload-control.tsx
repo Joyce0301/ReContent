@@ -21,6 +21,7 @@ type ControlPhase =
   | "valid"
   | "pending"
   | "pending_s3"
+  | "confirming"
   | "uploaded"
   | "error";
 
@@ -320,6 +321,8 @@ export function AvatarUploadControl({
 
       let confirmResponse: Response;
 
+      setPhase("confirming");
+
       try {
         confirmResponse = await fetch("/api/profile/avatar/confirm", {
           method: "POST",
@@ -400,11 +403,19 @@ export function AvatarUploadControl({
           : phase === "pending"
             ? "正在准备头像"
             : phase === "pending_s3"
-              ? "待接入 S3"
-              : phase === "uploaded"
-                ? "原图已上传，等待处理"
-                : "准备失败";
-  const isSubmitting = phase === "pending" || phase === "pending_s3";
+              ? "正在上传原图"
+              : phase === "confirming"
+                ? "正在确认上传"
+                : phase === "uploaded"
+                  ? "原图已上传，等待处理"
+                  : "准备失败";
+  const isSubmitting =
+    phase === "pending" || phase === "pending_s3" || phase === "confirming";
+  const fileChooserClassName = `inline-flex min-h-11 items-center justify-center rounded-full border px-5 text-sm font-medium transition peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 peer-focus-visible:ring-offset-2 ${
+    isSubmitting
+      ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-60"
+      : "cursor-pointer border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950"
+  }`;
 
   return (
     <div className="w-full min-w-0">
@@ -464,7 +475,8 @@ export function AvatarUploadControl({
         />
         <label
           htmlFor="avatar-file"
-          className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-950 peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 peer-focus-visible:ring-offset-2"
+          aria-disabled={isSubmitting}
+          className={fileChooserClassName}
         >
           选择头像文件
         </label>
