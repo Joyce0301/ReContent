@@ -17,6 +17,7 @@ ReContent 就是围绕这件事设计的。它不是单纯帮你“润色一段�
 - 支持语气风格和个性化要求，让结果更接近“你想怎么说”
 - 内置失败分类和保守模式 fallback，稳定性比一次性 prompt 调用更强
 - 已经具备登录、工作区和 MySQL 认证能力，正在从 Demo 走向可持续迭代的产品原型
+- 头像原图可安全直传私有 S3，并由独立 Lambda 异步压缩为标准 WebP
 
 当前用户路径是：
 
@@ -39,6 +40,7 @@ ReContent 就是围绕这件事设计的。它不是单纯帮你“润色一段�
 - 失败分类、重试决策、保守模式 fallback
 - URL 抽取失败时的可解释错误提示
 - 基础的 GitHub Actions CI / CD 与 AWS 部署链路
+- 私有 S3 头像上传，以及 Lambda + SQS 的异步图片处理基础设施
 
 和旧版本相比，当前项目最重要的变化有两点：
 
@@ -192,6 +194,8 @@ infra/
 - `OpenAI SDK`
 - 自定义 `Kimi` 客户端
 - `mysql2`
+- `AWS Lambda + S3 + SQS + SNS`
+- `sharp`
 - `Vitest`
 - `OpenNext + Cloudflare`
 - `Wrangler`
@@ -267,12 +271,14 @@ npm run preview
 npm run deploy
 npm run upload
 npm run cf-typegen
+npm run verify:avatar-lambda
 ```
 
 说明：
 
 - `preview` / `deploy` / `upload` 走的是 OpenNext + Cloudflare 这条构建链路
 - 当前仓库同时保留了 AWS ECS 方向的部署配置与文档，实际生产部署前请先确认你要走哪条路线
+- `verify:avatar-lambda` 只读检查头像 Lambda、S3、SQS、IAM 和告警配置；部署步骤见 [docs/auth/avatar-lambda-deployment.md](docs/auth/avatar-lambda-deployment.md)
 
 ## 测试与验证
 
@@ -330,7 +336,9 @@ npm run build
 - 执行内容
   - `npm ci`
   - `npm run lint`
-  - `npx vitest run app/api/repurpose/*.test.ts`
+  - `npx vitest run` 执行内容、认证、头像、页面和 preflight 的聚焦测试
+  - 安装并测试独立的 `lambda/avatar-processor` 包
+  - 在 Amazon Linux 2023 容器中构建 Lambda ZIP
   - `npm run build`
   - `docker build -t recontent:ci .`
 
@@ -338,16 +346,16 @@ npm run build
 
 - 安装依赖是否稳定
 - lint 是否通过
-- `repurpose` 主 API 测试是否通过
+- 内容重制、认证、头像上传和主要页面行为是否通过
+- Lambda 处理器类型、行为和 Linux 原生依赖是否可用
 - Next.js 生产构建是否通过
 - Docker 镜像是否至少能成功构建
 
 但它现在还没有完整覆盖：
 
-- auth 全链路测试
-- workspace 页面级回归
+- 浏览器级端到端用户流程
 - deploy 后 smoke test
-- 数据库连通性验证
+- 真实 RDS、S3 和 Lambda 的线上连通性验证
 
 相关文件：
 

@@ -144,8 +144,13 @@ export async function getAvatarUploadState(
                   AND (
                     avatar_updated_at IS NULL
                     OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
-                  )
                 )
+              )
+              OR (
+                avatar_status = 'uploaded'
+                AND avatar_updated_at IS NOT NULL
+                AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 24 HOUR
+              )
               THEN 1
               ELSE 0
             END AS reservation_eligible
@@ -192,6 +197,11 @@ export async function reserveAvatarUpload(input: {
              avatar_updated_at IS NULL
              OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE
            )
+         )
+         OR (
+           avatar_status = 'uploaded'
+           AND avatar_updated_at IS NOT NULL
+           AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 24 HOUR
          )
        )`,
     [input.stagingKey, input.userId]

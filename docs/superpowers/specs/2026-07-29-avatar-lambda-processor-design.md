@@ -18,7 +18,7 @@ original/confirmed/{userId}/{uploadId}.{jpg|png|webp}
 Avatar Processor Lambda
         |
         v
-processed/ready/{userId}/{uploadId}.webp
+processed/ready/{userId}/{uploadId}-{sourceExtension}.webp
 ```
 
 ## Delivery Split
@@ -69,7 +69,7 @@ For every record, it:
 5. requires `userId` and `uploadId` to contain only ASCII letters, digits,
    underscores, or hyphens
 6. derives the output key as
-   `processed/ready/{userId}/{uploadId}.webp`
+   `processed/ready/{userId}/{uploadId}-{sourceExtension}.webp`
 
 A malformed key under `original/confirmed/` is a processing failure, not a
 silent skip. A record for the wrong bucket is a configuration or security
@@ -117,7 +117,9 @@ The output key is deterministic and unique to the upload ID. Repeated delivery
 of the same S3 event writes the same WebP bytes to the same destination key.
 Overwriting that key is allowed.
 
-Writing under `processed/ready/` cannot recursively trigger the function
+Including the source extension prevents two manually corrupted source keys
+such as the same upload ID with `.jpg` and `.png` from racing to overwrite one
+output. Writing under `processed/ready/` cannot recursively trigger the function
 because the S3 notification is filtered to the exact
 `original/confirmed/` prefix.
 
@@ -157,12 +159,13 @@ failed events for manual inspection and redrive for 14 days.
 
 ### Operational Recovery
 
-The existing application marks a confirmed avatar as `uploaded`. The upload
-reservation query and profile control are changed so `uploaded` remains locked
-for 24 hours, then becomes eligible for replacement. The conditional
-reservation update applies the same 24-hour rule atomically. This is a bounded
-recovery guard for failures before invocation, destination-delivery failures,
-or missed operator alerts; it does not mark an avatar `ready`.
+The existing application marks a confirmed avatar as `uploaded`. The profile
+control already permits selecting a replacement file, while the upload API
+enforces reservation eligibility. The reservation read and conditional update
+are changed so `uploaded` remains locked for 24 hours, then becomes eligible
+for replacement. Both paths apply the same 24-hour rule atomically. This is a
+bounded recovery guard for failures before invocation, destination-delivery
+failures, or missed operator alerts; it does not mark an avatar `ready`.
 
 Both `getAvatarUploadState` and `reserveAvatarUpload` add this exact eligibility
 branch alongside their existing branches:
@@ -316,8 +319,8 @@ invoke the function.
 
 - scope prefix: `original/confirmed/`
 - expire current objects after 30 days
-- if bucket versioning is enabled, expire noncurrent confirmed-original
-  versions after 30 days and remove expired delete markers
+- if bucket versioning is enabled or suspended, expire noncurrent
+  confirmed-original versions after 30 days and remove expired delete markers
 - no lifecycle action for `processed/ready/` in this phase
 
 ### SQS DLQ
@@ -364,14 +367,17 @@ it can confirm:
 - Lambda runtime, architecture, memory, timeout, handler, and bucket environment
   variable
 - the execution role's required scoped S3 and SQS actions
+- the execution role trust policy permits only the Lambda service
 - bucket default encryption is SSE-S3 (`AES256`), avoiding implicit KMS
   permissions
 - the S3 notification event and exact `original/confirmed/` prefix
+- no overlapping avatar notifications or bucket-wide EventBridge delivery
 - the Lambda resource policy restricted by bucket ARN and account
 - asynchronous retry count, maximum age, and SQS on-failure destination
 - SQS standard type, SSE-SQS encryption, and 14-day retention
-- the 30-day current-version lifecycle rule and, when versioning is enabled,
-  noncurrent-version and delete-marker handling
+- no queue redrive policy and no Lambda event-source mapping consuming the DLQ
+- the 30-day current-version lifecycle rule and, when versioning is enabled or
+  suspended, noncurrent-version and delete-marker handling
 - all SQS and Lambda alarm thresholds, periods, missing-data behavior, and
   actions
 
@@ -415,7 +421,7 @@ Responsibilities:
   output without calling AWS
 - `handler.ts` coordinates S3 reads, transformation, writes, logging, and
   invocation failure
-- the existing user-store reservation query and profile control expose a
+- the existing user-store reservation read and atomic update permit a
   replacement upload only after an `uploaded` state is 24 hours old
 
 The ZIP build output is generated and git-ignored. Source, lockfile, tests, and
@@ -446,7 +452,7 @@ Local automated tests cover:
   unsafe configuration
 - the Linux x64 package smoke test loading `sharp`
 - fresh `uploaded` state remaining locked and 24-hour-old `uploaded` state
-  becoming atomically replaceable in both API and profile behavior
+  becoming atomically replaceable through the upload API
 
 The existing avatar upload and confirmation suites must continue to pass, with
 focused cases added for the 24-hour replacement guard.
@@ -458,7 +464,7 @@ After the code ZIP and AWS resources are ready:
 1. Upload and confirm one JPEG, one PNG, and one WebP through ReContent.
 2. Confirm Lambda invocation in CloudWatch.
 3. Confirm each source under `original/confirmed/` produces
-   `processed/ready/{userId}/{uploadId}.webp`.
+   `processed/ready/{userId}/{uploadId}-{sourceExtension}.webp`.
 4. Download each output and verify WebP format and 512 x 512 dimensions.
 5. Confirm `avatar_status` remains `uploaded`.
 6. Put a deliberately corrupt object under a test confirmed key.

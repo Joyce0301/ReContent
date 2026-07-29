@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "verify:avatar-lambda": "node scripts/verify-avatar-lambda-prerequisites.mjs",
     "verify:xiaohongshu-draft": "npm run lint && npx vitest run app/page.test.tsx app/xiaohongshu-draft-debug/page.test.tsx app/lib/xiaohongshu-draft-bridge.test.ts app/api/repurpose/*.test.ts extensions/xiaohongshu-draft-bridge/xiaohongshu-fill.test.ts extensions/xiaohongshu-draft-bridge/manifest.test.ts extensions/xiaohongshu-draft-bridge/service-worker.test.ts && npm run build",
     "verify:xiaohongshu-draft:cdp": "node scripts/verify-xiaohongshu-draft-cdp.mjs",
     "test": "node --test app/api/repurpose/content-extraction.test.ts",

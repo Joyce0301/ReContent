@@ -187,7 +187,7 @@ describe("user-store avatar upload state machine", () => {
       reservationEligible: false
     });
     expect(normalizeSql(queryOneMock.mock.calls[0][0])).toBe(
-      "SELECT avatar_key, avatar_status, avatar_updated_at, CASE WHEN avatar_status IN ('not_uploaded', 'failed') OR ( avatar_status = 'pending_upload' AND ( avatar_updated_at IS NULL OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE ) ) THEN 1 ELSE 0 END AS reservation_eligible FROM users WHERE id = ? LIMIT 1"
+      "SELECT avatar_key, avatar_status, avatar_updated_at, CASE WHEN avatar_status IN ('not_uploaded', 'failed') OR ( avatar_status = 'pending_upload' AND ( avatar_updated_at IS NULL OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE ) ) OR ( avatar_status = 'uploaded' AND avatar_updated_at IS NOT NULL AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 24 HOUR ) THEN 1 ELSE 0 END AS reservation_eligible FROM users WHERE id = ? LIMIT 1"
     );
     expect(queryOneMock.mock.calls[0][1]).toEqual(["user-1"]);
   });
@@ -230,14 +230,14 @@ describe("user-store avatar upload state machine", () => {
     });
   });
 
-  it("reserves a staging key only from an available or stale pending state", async () => {
+  it("reserves only from an available, stale pending, or 24-hour uploaded state", async () => {
     executeMock.mockResolvedValue([{ affectedRows: 1 }, []]);
 
     await expect(
       reserveAvatarUpload({ userId: "user-1", stagingKey })
     ).resolves.toBe(true);
     expect(normalizeSql(executeMock.mock.calls[0][0])).toBe(
-      "UPDATE users SET avatar_key = ?, avatar_status = 'pending_upload', avatar_confirmation_token = NULL, avatar_updated_at = UTC_TIMESTAMP() WHERE id = ? AND ( avatar_status IN ('not_uploaded', 'failed') OR ( avatar_status = 'pending_upload' AND ( avatar_updated_at IS NULL OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE ) ) )"
+      "UPDATE users SET avatar_key = ?, avatar_status = 'pending_upload', avatar_confirmation_token = NULL, avatar_updated_at = UTC_TIMESTAMP() WHERE id = ? AND ( avatar_status IN ('not_uploaded', 'failed') OR ( avatar_status = 'pending_upload' AND ( avatar_updated_at IS NULL OR avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 5 MINUTE ) ) OR ( avatar_status = 'uploaded' AND avatar_updated_at IS NOT NULL AND avatar_updated_at <= UTC_TIMESTAMP() - INTERVAL 24 HOUR ) )"
     );
     expect(executeMock.mock.calls[0][1]).toEqual([stagingKey, "user-1"]);
   });
