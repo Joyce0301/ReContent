@@ -2713,6 +2713,16 @@ describe("avatar deployment workflow gates", () => {
     const nextBuildIndex = steps.findIndex(
       step => step.run === "npm run build"
     );
+    const lambdaInstallIndex = steps.findIndex(
+      step =>
+        step.run === "npm ci --prefix lambda/avatar-processor"
+    );
+    const lambdaTestIndex = steps.findIndex(
+      step => step.name === "Test avatar Lambda"
+    );
+    const lambdaZipIndex = steps.findIndex(
+      step => step.name === "Build avatar Lambda ZIP"
+    );
     const openNextIndex = steps.findIndex(
       step =>
         step.run ===
@@ -2723,7 +2733,36 @@ describe("avatar deployment workflow gates", () => {
     );
 
     expect(nextBuildIndex).toBeGreaterThan(-1);
+    expect(lambdaInstallIndex).toBeGreaterThan(nextBuildIndex);
     expect(openNextIndex).toBeGreaterThan(nextBuildIndex);
-    expect(dockerIndex).toBeGreaterThan(openNextIndex);
+    expect(openNextIndex).toBeLessThan(lambdaInstallIndex);
+    expect(lambdaTestIndex).toBeGreaterThan(lambdaInstallIndex);
+    expect(lambdaZipIndex).toBeGreaterThan(lambdaTestIndex);
+    expect(dockerIndex).toBeGreaterThan(lambdaZipIndex);
+  });
+
+  it("gates ECS deployment with isolated avatar Lambda validation", () => {
+    const steps = workflowJobSteps("deploy.yml", "deploy");
+    const appBuildIndex = steps.findIndex(
+      step => step.name === "Build app"
+    );
+    const lambdaInstallIndex = steps.findIndex(
+      step => step.name === "Install avatar Lambda dependencies"
+    );
+    const lambdaTestIndex = steps.findIndex(
+      step => step.name === "Test avatar Lambda"
+    );
+    const lambdaZipIndex = steps.findIndex(
+      step => step.name === "Build avatar Lambda ZIP"
+    );
+    const credentialsIndex = steps.findIndex(
+      step => step.name === "Configure AWS credentials"
+    );
+
+    expect(appBuildIndex).toBeGreaterThan(-1);
+    expect(lambdaInstallIndex).toBeGreaterThan(appBuildIndex);
+    expect(lambdaTestIndex).toBeGreaterThan(lambdaInstallIndex);
+    expect(lambdaZipIndex).toBeGreaterThan(lambdaTestIndex);
+    expect(credentialsIndex).toBeGreaterThan(lambdaZipIndex);
   });
 });

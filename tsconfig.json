@@ -43,6 +43,7 @@
   ],
   "exclude": [
     "node_modules",
+    "lambda/avatar-processor",
     "**/*.test.ts",
     "**/*.test.tsx"
   ]

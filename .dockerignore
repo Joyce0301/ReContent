@@ -1,4 +1,6 @@
 node_modules
+lambda/avatar-processor/node_modules
+lambda/avatar-processor/dist
 .next
 !.next/standalone
 !.next/standalone/**
