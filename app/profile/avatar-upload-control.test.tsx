@@ -57,6 +57,26 @@ function statusResponse(status: number) {
   return { status };
 }
 
+function nonJsonResponse(status: number) {
+  return {
+    status,
+    json: vi.fn().mockRejectedValue(new SyntaxError("not json"))
+  };
+}
+
+function serializeConsoleArguments(
+  spies: Array<ReturnType<typeof vi.spyOn>>
+) {
+  return spies
+    .flatMap(spy => spy.mock.calls)
+    .flatMap(args =>
+      args.map(arg =>
+        arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)
+      )
+    )
+    .join("\n");
+}
+
 describe("AvatarUploadControl", () => {
   beforeEach(() => {
     createObjectURLMock.mockReset();
@@ -264,6 +284,51 @@ describe("AvatarUploadControl", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  it("aborts the pending S3 request on unmount", async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockImplementationOnce(() => new Promise(() => {}) as never);
+    const { unmount } = render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const signal = fetchMock.mock.calls[1]?.[1]?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("aborts the pending confirmation request on unmount", async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockImplementationOnce(() => new Promise(() => {}) as never);
+    const { unmount } = render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const signal = fetchMock.mock.calls[2]?.[1]?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+  });
+
   it("shows uploaded feedback after confirmed upload", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
@@ -277,6 +342,103 @@ describe("AvatarUploadControl", () => {
     fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
     expect(await screen.findAllByText("原图已上传，等待处理")).toHaveLength(2);
+  });
+
+  it.each([200, 201, 400])(
+    "does not confirm when S3 returns %s",
+    async status => {
+      const fetchMock = vi
+        .mocked(fetch)
+        .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+        .mockResolvedValueOnce(statusResponse(status) as never);
+
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      expect((await screen.findByRole("alert")).textContent).toContain(
+        "头像上传失败，请稍后再试"
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+    }
+  );
+
+  it("does not confirm when the S3 request rejects", async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockRejectedValueOnce(new TypeError("secret AWS body"));
+
+    render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "网络连接失败，请稍后再试"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+  });
+
+  it("does not leak sensitive S3 values after a failed upload sequence", async () => {
+    const sensitiveValues = [
+      "signed-policy",
+      "signed-value",
+      "staging/users/user-1/avatar.png",
+      "raw-aws-error"
+    ];
+    const consoleSpies = [
+      vi.spyOn(console, "log").mockImplementation(() => undefined),
+      vi.spyOn(console, "info").mockImplementation(() => undefined),
+      vi.spyOn(console, "warn").mockImplementation(() => undefined),
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+    ];
+
+    try {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+        .mockRejectedValueOnce(new TypeError("raw-aws-error"));
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      expect((await screen.findByRole("alert")).textContent).toContain(
+        "网络连接失败，请稍后再试"
+      );
+      const consoleOutput = serializeConsoleArguments(consoleSpies);
+      const visibleAndLoggedOutput = `${document.body.textContent ?? ""}\n${consoleOutput}`;
+      for (const sensitiveValue of sensitiveValues) {
+        expect(visibleAndLoggedOutput).not.toContain(sensitiveValue);
+      }
+    } finally {
+      for (const spy of consoleSpies) {
+        spy.mockRestore();
+      }
+    }
+  });
+
+  it("serializes console Error arguments with name and message", () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      console.error(new TypeError("raw-aws-error"));
+
+      expect(serializeConsoleArguments([consoleSpy])).toContain(
+        "TypeError: raw-aws-error"
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it("blocks repeat submission after confirmed upload until a new file is selected", async () => {
@@ -312,11 +474,70 @@ describe("AvatarUploadControl", () => {
   });
 
   it.each([
-    [400, { error: "头像文件名不能为空" }, "头像文件名不能为空"],
-    [429, { error: "ignored" }, "请求过于频繁，请稍后再试"],
-    [503, { error: "ignored" }, "头像服务暂时不可用，请稍后再试"]
-  ])("handles a %s API response", async (status, body, expectedMessage) => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(status, body) as never);
+    [400, "头像上传请求无效，请重新选择文件"],
+    [401, "登录已过期，请重新登录"],
+    [409, "当前头像暂时无法继续上传，请稍后再试"],
+    [413, "头像上传请求过大，请选择更小的文件"],
+    [429, "请求过于频繁，请稍后再试"],
+    [503, "头像服务暂时不可用，请稍后再试"]
+  ])(
+    "shows a fixed message for upload-intent %s response",
+    async (status, expectedMessage) => {
+      const fetchMock = vi.mocked(fetch).mockResolvedValue(
+        jsonResponse(status, { error: "raw backend error" }) as never
+      );
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(expectedMessage);
+      expect(alert.textContent).not.toContain("raw backend error");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+      if (status === 401) {
+        expect(
+          screen.getByRole("link", { name: "前往登录" }).getAttribute("href")
+        ).toBe("/auth");
+      }
+    }
+  );
+
+  it.each([
+    [400, "头像上传请求无效，请重新选择文件"],
+    [409, "当前头像暂时无法继续上传，请稍后再试"],
+    [429, "请求过于频繁，请稍后再试"],
+    [503, "头像服务暂时不可用，请稍后再试"]
+  ])(
+    "shows a fixed message for confirmation %s response",
+    async (status, expectedMessage) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+        .mockResolvedValueOnce(statusResponse(204) as never)
+        .mockResolvedValueOnce(
+          jsonResponse(status, { error: "raw confirm error" }) as never
+        );
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(expectedMessage);
+      expect(alert.textContent).not.toContain("raw confirm error");
+      expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+    }
+  );
+
+  it("does not expose response body errors in status feedback", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(400, { error: "raw backend error" }) as never
+    );
     render(
       <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
     );
@@ -324,10 +545,78 @@ describe("AvatarUploadControl", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      expectedMessage
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "头像上传请求无效，请重新选择文件"
     );
+    expect(alert.textContent).not.toContain("raw backend error");
   });
+
+  it.each([
+    [400, "头像上传请求无效，请重新选择文件"],
+    [401, "登录已过期，请重新登录"],
+    [409, "当前头像暂时无法继续上传，请稍后再试"],
+    [413, "头像上传请求过大，请选择更小的文件"],
+    [429, "请求过于频繁，请稍后再试"],
+    [503, "头像服务暂时不可用，请稍后再试"]
+  ])(
+    "shows a fixed message for non-JSON upload-intent %s response",
+    async (status, expectedMessage) => {
+      const fetchMock = vi
+        .mocked(fetch)
+        .mockResolvedValue(nonJsonResponse(status) as never);
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(expectedMessage);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+      if (status === 401) {
+        expect(
+          screen.getByRole("link", { name: "前往登录" }).getAttribute("href")
+        ).toBe("/auth");
+      }
+    }
+  );
+
+  it.each([
+    [400, "头像上传请求无效，请重新选择文件"],
+    [401, "登录已过期，请重新登录"],
+    [409, "当前头像暂时无法继续上传，请稍后再试"],
+    [413, "头像上传请求过大，请选择更小的文件"],
+    [429, "请求过于频繁，请稍后再试"],
+    [503, "头像服务暂时不可用，请稍后再试"]
+  ])(
+    "shows a fixed message for non-JSON confirmation %s response",
+    async (status, expectedMessage) => {
+      const fetchMock = vi
+        .mocked(fetch)
+        .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+        .mockResolvedValueOnce(statusResponse(204) as never)
+        .mockResolvedValueOnce(nonJsonResponse(status) as never);
+      render(
+        <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+      );
+      selectFile(createFile());
+
+      fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(expectedMessage);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+      if (status === 401) {
+        expect(
+          screen.getByRole("link", { name: "前往登录" }).getAttribute("href")
+        ).toBe("/auth");
+      }
+    }
+  );
 
   it("links to auth when the session has expired", async () => {
     vi.mocked(fetch).mockResolvedValue(
@@ -346,6 +635,74 @@ describe("AvatarUploadControl", () => {
     expect(
       screen.getByRole("link", { name: "前往登录" }).getAttribute("href")
     ).toBe("/auth");
+  });
+
+  it.each([
+    [
+      { upload: { url: "", fields: {}, expiresAt: "later" }, objectKey: "key" }
+    ],
+    [
+      {
+        upload: {
+          url: "https://s3.example",
+          fields: { key: 42 },
+          expiresAt: "later"
+        },
+        objectKey: "key"
+      }
+    ],
+    [
+      {
+        upload: { url: "https://s3.example", fields: {}, expiresAt: "" },
+        objectKey: "key"
+      }
+    ],
+    [
+      {
+        upload: { url: "https://s3.example", fields: {}, expiresAt: "later" },
+        objectKey: ""
+      }
+    ]
+  ])("rejects malformed upload-intent contract %#", async body => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValue(jsonResponse(200, body) as never);
+    render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "头像服务返回了无法识别的响应，请稍后再试"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
+  });
+
+  it.each([
+    [{ status: "ready", confirmedKey: "key" }],
+    [{ status: "uploaded", confirmedKey: "" }],
+    [{ status: "uploaded" }]
+  ])("rejects malformed confirmation contract %#", async body => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(200, uploadIntentBody) as never)
+      .mockResolvedValueOnce(statusResponse(204) as never)
+      .mockResolvedValueOnce(jsonResponse(200, body) as never);
+    render(
+      <AvatarUploadControl avatarInitial="J" initialStatus="not_uploaded" />
+    );
+    selectFile(createFile());
+
+    fireEvent.click(screen.getByRole("button", { name: "上传头像" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "头像服务返回了无法识别的响应，请稍后再试"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.queryByText("原图已上传，等待处理")).toBeNull();
   });
 
   it.each([

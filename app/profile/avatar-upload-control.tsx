@@ -35,6 +35,12 @@ const INITIAL_STATUS_LABELS: Record<AvatarStatus, string> = {
 
 const MALFORMED_RESPONSE_MESSAGE =
   "头像服务返回了无法识别的响应，请稍后再试";
+const GENERIC_UPLOAD_ERROR = "头像上传失败，请稍后再试";
+const INVALID_UPLOAD_MESSAGE = "头像上传请求无效，请重新选择文件";
+const UPLOAD_TOO_LARGE_MESSAGE =
+  "头像上传请求过大，请选择更小的文件";
+const UPLOAD_CONFLICT_MESSAGE =
+  "当前头像暂时无法继续上传，请稍后再试";
 
 type UploadIntentResponse = {
   upload: {
@@ -92,13 +98,23 @@ function isConfirmResponse(
   );
 }
 
-function isErrorBody(value: unknown): value is { error: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { error?: unknown }).error === "string" &&
-    (value as { error: string }).error.length > 0
-  );
+function getUploadFailureMessage(status: number) {
+  switch (status) {
+    case 400:
+      return INVALID_UPLOAD_MESSAGE;
+    case 401:
+      return "登录已过期，请重新登录";
+    case 409:
+      return UPLOAD_CONFLICT_MESSAGE;
+    case 413:
+      return UPLOAD_TOO_LARGE_MESSAGE;
+    case 429:
+      return "请求过于频繁，请稍后再试";
+    case 503:
+      return "头像服务暂时不可用，请稍后再试";
+    default:
+      return GENERIC_UPLOAD_ERROR;
+  }
 }
 
 export function AvatarUploadControl({
@@ -232,6 +248,14 @@ export function AvatarUploadControl({
       return;
     }
 
+    if (intentResponse.status !== 200) {
+      setPhase("error");
+      setFeedback(getUploadFailureMessage(intentResponse.status));
+      setShowAuthLink(intentResponse.status === 401);
+      finishRequest(requestController);
+      return;
+    }
+
     let body: unknown;
 
     try {
@@ -289,7 +313,7 @@ export function AvatarUploadControl({
 
       if (s3Response.status !== 204) {
         setPhase("error");
-        setFeedback("头像准备失败，请稍后再试");
+        setFeedback(GENERIC_UPLOAD_ERROR);
         finishRequest(requestController);
         return;
       }
@@ -316,6 +340,14 @@ export function AvatarUploadControl({
       }
 
       if (requestController.signal.aborted) {
+        finishRequest(requestController);
+        return;
+      }
+
+      if (confirmResponse.status !== 200) {
+        setPhase("error");
+        setFeedback(getUploadFailureMessage(confirmResponse.status));
+        setShowAuthLink(confirmResponse.status === 401);
         finishRequest(requestController);
         return;
       }
@@ -353,24 +385,6 @@ export function AvatarUploadControl({
     } else if (intentResponse.status === 200) {
       setPhase("error");
       setFeedback(MALFORMED_RESPONSE_MESSAGE);
-    } else if (intentResponse.status === 400) {
-      setPhase("error");
-      setFeedback(
-        isErrorBody(body) ? body.error : MALFORMED_RESPONSE_MESSAGE
-      );
-    } else if (intentResponse.status === 401) {
-      setPhase("error");
-      setFeedback("登录已过期，请重新登录");
-      setShowAuthLink(true);
-    } else if (intentResponse.status === 429) {
-      setPhase("error");
-      setFeedback("请求过于频繁，请稍后再试");
-    } else if (intentResponse.status === 503) {
-      setPhase("error");
-      setFeedback("头像服务暂时不可用，请稍后再试");
-    } else {
-      setPhase("error");
-      setFeedback("头像准备失败，请稍后再试");
     }
 
     finishRequest(requestController);
