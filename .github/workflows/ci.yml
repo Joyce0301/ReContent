@@ -60,8 +60,20 @@ jobs:
             app/profile/*.test.tsx \
             app/workspace/*.test.tsx \
             app/page.test.tsx \
+            scripts/verify-avatar-lambda-prerequisites.test.ts \
             scripts/verify-avatar-s3-prerequisites.test.ts \
             --exclude app/api/repurpose/content-extraction.live.test.ts
+
+      - name: Install avatar Lambda dependencies
+        run: npm ci --prefix lambda/avatar-processor
+
+      - name: Test avatar Lambda
+        run: |
+          npm test --prefix lambda/avatar-processor
+          npm run typecheck --prefix lambda/avatar-processor
+
+      - name: Build avatar Lambda ZIP
+        run: npm run build:zip --prefix lambda/avatar-processor
 
       - name: Build
         run: npm run build

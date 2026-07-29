@@ -3,3 +3,6 @@ node_modules/
 .open-next/
 .env.local
 .DS_Store
+lambda/avatar-processor/dist/
+lambda/avatar-processor/.build.*/
+*.tsbuildinfo
