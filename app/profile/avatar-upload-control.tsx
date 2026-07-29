@@ -21,6 +21,8 @@ type ControlPhase =
   | "valid"
   | "pending"
   | "pending_s3"
+  | "confirming"
+  | "uploaded"
   | "error";
 
 const INITIAL_STATUS_LABELS: Record<AvatarStatus, string> = {
@@ -34,35 +36,86 @@ const INITIAL_STATUS_LABELS: Record<AvatarStatus, string> = {
 
 const MALFORMED_RESPONSE_MESSAGE =
   "头像服务返回了无法识别的响应，请稍后再试";
-const DRY_RUN_SUCCESS_MESSAGE =
-  "头像信息已通过校验，图片尚未上传或保存";
+const GENERIC_UPLOAD_ERROR = "头像上传失败，请稍后再试";
+const INVALID_UPLOAD_MESSAGE = "头像上传请求无效，请重新选择文件";
+const UPLOAD_TOO_LARGE_MESSAGE =
+  "头像上传请求过大，请选择更小的文件";
+const UPLOAD_CONFLICT_MESSAGE =
+  "当前头像暂时无法继续上传，请稍后再试";
 
-function isDryRunSuccessBody(
+type UploadIntentResponse = {
+  upload: {
+    url: string;
+    fields: Record<string, string>;
+    expiresAt: string;
+  };
+  objectKey: string;
+};
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isUploadIntentResponse(
   value: unknown
-): value is {
-  validation: { status: "ready_for_storage" };
-  message: typeof DRY_RUN_SUCCESS_MESSAGE;
-} {
+): value is UploadIntentResponse {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as {
+    upload?: unknown;
+    objectKey?: unknown;
+  };
+  if (
+    typeof candidate.upload !== "object" ||
+    candidate.upload === null ||
+    !isNonEmptyString(candidate.objectKey)
+  ) {
+    return false;
+  }
+
+  const upload = candidate.upload as {
+    url?: unknown;
+    fields?: unknown;
+    expiresAt?: unknown;
+  };
   return (
-    typeof value === "object" &&
-    value !== null &&
-    Object.keys(value).length === 2 &&
-    (value as { message?: unknown }).message === DRY_RUN_SUCCESS_MESSAGE &&
-    typeof (value as { validation?: unknown }).validation === "object" &&
-    (value as { validation?: unknown }).validation !== null &&
-    Object.keys((value as { validation: object }).validation).length === 1 &&
-    (value as { validation: { status?: unknown } }).validation.status ===
-      "ready_for_storage"
+    isNonEmptyString(upload.url) &&
+    isNonEmptyString(upload.expiresAt) &&
+    typeof upload.fields === "object" &&
+    upload.fields !== null &&
+    !Array.isArray(upload.fields) &&
+    Object.values(upload.fields).every(isNonEmptyString)
   );
 }
 
-function isErrorBody(value: unknown): value is { error: string } {
+function isConfirmResponse(
+  value: unknown
+): value is { status: "uploaded"; confirmedKey: string } {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as { error?: unknown }).error === "string" &&
-    (value as { error: string }).error.length > 0
+    (value as { status?: unknown }).status === "uploaded" &&
+    isNonEmptyString((value as { confirmedKey?: unknown }).confirmedKey)
   );
+}
+
+function getUploadFailureMessage(status: number) {
+  switch (status) {
+    case 400:
+      return INVALID_UPLOAD_MESSAGE;
+    case 401:
+      return "登录已过期，请重新登录";
+    case 409:
+      return UPLOAD_CONFLICT_MESSAGE;
+    case 413:
+      return UPLOAD_TOO_LARGE_MESSAGE;
+    case 429:
+      return "请求过于频繁，请稍后再试";
+    case 503:
+      return "头像服务暂时不可用，请稍后再试";
+    default:
+      return GENERIC_UPLOAD_ERROR;
+  }
 }
 
 export function AvatarUploadControl({
@@ -71,6 +124,7 @@ export function AvatarUploadControl({
 }: AvatarUploadControlProps) {
   const [phase, setPhase] = useState<ControlPhase>("initial");
   const [intent, setIntent] = useState<AvatarUploadIntent | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showAuthLink, setShowAuthLink] = useState(false);
@@ -111,6 +165,7 @@ export function AvatarUploadControl({
 
     revokePreview();
     setIntent(null);
+    setSelectedFile(null);
     setFeedback(null);
     setShowAuthLink(false);
 
@@ -138,13 +193,20 @@ export function AvatarUploadControl({
     previewUrlRef.current = nextPreviewUrl;
     setPreviewUrl(nextPreviewUrl);
     setIntent(validation.value);
+    setSelectedFile(file);
     setPhase("valid");
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!intent || pendingRef.current || phase === "pending_s3") {
+    if (
+      !intent ||
+      !selectedFile ||
+      pendingRef.current ||
+      phase === "pending_s3" ||
+      phase === "uploaded"
+    ) {
       return;
     }
 
@@ -157,10 +219,10 @@ export function AvatarUploadControl({
     const requestController = new AbortController();
     requestControllerRef.current = requestController;
 
-    let response: Response;
+    let intentResponse: Response;
 
     try {
-      response = await fetch("/api/profile/avatar", {
+      intentResponse = await fetch("/api/profile/avatar/upload-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: requestController.signal,
@@ -187,10 +249,18 @@ export function AvatarUploadControl({
       return;
     }
 
+    if (intentResponse.status !== 200) {
+      setPhase("error");
+      setFeedback(getUploadFailureMessage(intentResponse.status));
+      setShowAuthLink(intentResponse.status === 401);
+      finishRequest(requestController);
+      return;
+    }
+
     let body: unknown;
 
     try {
-      body = await response.json();
+      body = await intentResponse.json();
     } catch {
       if (requestController.signal.aborted) {
         finishRequest(requestController);
@@ -208,33 +278,116 @@ export function AvatarUploadControl({
       return;
     }
 
-    if (response.status === 200) {
-      if (isDryRunSuccessBody(body)) {
+    if (intentResponse.status === 200 && isUploadIntentResponse(body)) {
+      const formData = new FormData();
+      for (const [field, value] of Object.entries(body.upload.fields)) {
+        formData.append(field, value);
+      }
+      formData.append("file", selectedFile);
+
+      let s3Response: Response;
+
+      setPhase("pending_s3");
+
+      try {
+        s3Response = await fetch(body.upload.url, {
+          method: "POST",
+          signal: requestController.signal,
+          body: formData
+        });
+      } catch {
+        if (requestController.signal.aborted) {
+          finishRequest(requestController);
+          return;
+        }
+
+        setPhase("error");
+        setFeedback("网络连接失败，请稍后再试");
+        finishRequest(requestController);
+        return;
+      }
+
+      if (requestController.signal.aborted) {
+        finishRequest(requestController);
+        return;
+      }
+
+      if (s3Response.status !== 204) {
+        setPhase("error");
+        setFeedback(GENERIC_UPLOAD_ERROR);
+        finishRequest(requestController);
+        return;
+      }
+
+      let confirmResponse: Response;
+
+      setPhase("confirming");
+
+      try {
+        confirmResponse = await fetch("/api/profile/avatar/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: requestController.signal,
+          body: JSON.stringify({ objectKey: body.objectKey })
+        });
+      } catch {
+        if (requestController.signal.aborted) {
+          finishRequest(requestController);
+          return;
+        }
+
+        setPhase("error");
+        setFeedback("网络连接失败，请稍后再试");
+        finishRequest(requestController);
+        return;
+      }
+
+      if (requestController.signal.aborted) {
+        finishRequest(requestController);
+        return;
+      }
+
+      if (confirmResponse.status !== 200) {
+        setPhase("error");
+        setFeedback(getUploadFailureMessage(confirmResponse.status));
+        setShowAuthLink(confirmResponse.status === 401);
+        finishRequest(requestController);
+        return;
+      }
+
+      let confirmBody: unknown;
+
+      try {
+        confirmBody = await confirmResponse.json();
+      } catch {
+        if (requestController.signal.aborted) {
+          finishRequest(requestController);
+          return;
+        }
+
+        setPhase("error");
+        setFeedback(MALFORMED_RESPONSE_MESSAGE);
+        finishRequest(requestController);
+        return;
+      }
+
+      if (requestController.signal.aborted) {
+        finishRequest(requestController);
+        return;
+      }
+
+      if (confirmResponse.status === 200 && isConfirmResponse(confirmBody)) {
         setIntent(null);
-        setPhase("pending_s3");
-        setFeedback(body.message);
+        setSelectedFile(null);
+        setPhase("uploaded");
+        setFeedback("原图已上传，等待处理");
       } else {
         setPhase("error");
         setFeedback(MALFORMED_RESPONSE_MESSAGE);
       }
-    } else if (response.status === 400) {
+    } else if (intentResponse.status === 200) {
       setPhase("error");
-      setFeedback(
-        isErrorBody(body) ? body.error : MALFORMED_RESPONSE_MESSAGE
-      );
-    } else if (response.status === 401) {
-      setPhase("error");
-      setFeedback("登录已过期，请重新登录");
-      setShowAuthLink(true);
-    } else if (response.status === 429) {
-      setPhase("error");
-      setFeedback("请求过于频繁，请稍后再试");
-    } else if (response.status === 503) {
-      setPhase("error");
-      setFeedback("头像服务暂时不可用，请稍后再试");
-    } else {
-      setPhase("error");
-      setFeedback("头像准备失败，请稍后再试");
+      setFeedback(MALFORMED_RESPONSE_MESSAGE);
     }
 
     finishRequest(requestController);
@@ -250,8 +403,19 @@ export function AvatarUploadControl({
           : phase === "pending"
             ? "正在准备头像"
             : phase === "pending_s3"
-              ? "待接入 S3"
-              : "准备失败";
+              ? "正在上传原图"
+              : phase === "confirming"
+                ? "正在确认上传"
+                : phase === "uploaded"
+                  ? "原图已上传，等待处理"
+                  : "准备失败";
+  const isSubmitting =
+    phase === "pending" || phase === "pending_s3" || phase === "confirming";
+  const fileChooserClassName = `inline-flex min-h-11 items-center justify-center rounded-full border px-5 text-sm font-medium transition peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 peer-focus-visible:ring-offset-2 ${
+    isSubmitting
+      ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-60"
+      : "cursor-pointer border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950"
+  }`;
 
   return (
     <div className="w-full min-w-0">
@@ -307,27 +471,28 @@ export function AvatarUploadControl({
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleFileChange}
-          disabled={phase === "pending"}
+          disabled={isSubmitting}
         />
         <label
           htmlFor="avatar-file"
-          className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-950 peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-sky-500 peer-focus-visible:ring-offset-2"
+          aria-disabled={isSubmitting}
+          className={fileChooserClassName}
         >
           选择头像文件
         </label>
         <button
           type="submit"
-          disabled={!intent || phase === "pending"}
+          disabled={!intent || isSubmitting}
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          准备头像
+          上传头像
         </button>
       </form>
 
       {feedback ? (
         <div
           className={`mt-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${
-            phase === "pending_s3"
+            phase === "pending_s3" || phase === "uploaded"
               ? "border-sky-200 bg-sky-50 text-sky-800"
               : "border-rose-200 bg-rose-50 text-rose-800"
           }`}
