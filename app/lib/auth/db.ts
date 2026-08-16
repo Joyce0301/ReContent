@@ -172,6 +172,24 @@ export async function queryOne<T extends RowDataPacket>(
   }
 }
 
+export async function queryAll<T extends RowDataPacket>(
+  sql: string,
+  values: SqlValue[]
+) {
+  try {
+    const [rows] = await getAuthPool().query<T[]>(sql, values);
+    return rows;
+  } catch (error) {
+    if (error instanceof AuthConfigurationError) {
+      throw error;
+    }
+
+    throw new AuthStorageUnavailableError("Unable to query the auth database.", {
+      cause: error
+    });
+  }
+}
+
 export async function execute(sql: string, values: SqlValue[]) {
   try {
     return await getAuthPool().execute(sql, values);

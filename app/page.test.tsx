@@ -35,6 +35,32 @@ describe("HomePage personalized prompt request", () => {
     avatarUpdatedAt: null
   };
 
+  function createWorkspaceFetchMock(repurposePayload: { results: unknown[] }) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/drafts") {
+        return {
+          ok: true,
+          json: async () => ({ drafts: [] })
+        };
+      }
+
+      if (url === "/api/repurpose") {
+        return {
+          ok: true,
+          json: async () => repurposePayload
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+  }
+
+  function findRepurposeRequest(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls.find(([input]) => String(input) === "/api/repurpose");
+  }
+
   afterEach(() => {
     cleanup();
     buildXiaohongshuDraftPayloadMock.mockReset();
@@ -56,10 +82,7 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("sends customInstruction in the repurpose request body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: [] })
-    });
+    const fetchMock = createWorkspaceFetchMock({ results: [] });
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -73,16 +96,15 @@ describe("HomePage personalized prompt request", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("更像创始人发言");
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain('"platforms":["twitter"]');
+    await waitFor(() => expect(findRepurposeRequest(fetchMock)).toBeTruthy());
+    expect(String(findRepurposeRequest(fetchMock)?.[1]?.body)).toContain("更像创始人发言");
+    expect(String(findRepurposeRequest(fetchMock)?.[1]?.body)).toContain(
+      '"platforms":["twitter"]'
+    );
   });
 
   it("sends only the actively selected platform in the repurpose request body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: [] })
-    });
+    const fetchMock = createWorkspaceFetchMock({ results: [] });
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -94,18 +116,77 @@ describe("HomePage personalized prompt request", () => {
     fireEvent.click(screen.getByRole("button", { name: "小红书笔记" }));
     fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+    await waitFor(() => expect(findRepurposeRequest(fetchMock)).toBeTruthy());
+    expect(String(findRepurposeRequest(fetchMock)?.[1]?.body)).toContain(
       '"platforms":["xiaohongshu"]'
     );
   });
 
+  it("saves a brand-new draft without sending a null draftId", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/drafts" && !init?.method) {
+        return {
+          ok: true,
+          json: async () => ({ drafts: [] })
+        };
+      }
+
+      if (url === "/api/drafts" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            draft: {
+              id: "draft-1",
+              name: "Saved draft",
+              inputMode: "text",
+              sourceText: "Draft body",
+              sourceUrl: "",
+              selectedPlatform: "twitter",
+              tone: "neutral",
+              customInstruction: "",
+              results: [],
+              activePlatform: null,
+              createdAt: "2026-08-16T08:00:00.000Z",
+              updatedAt: "2026-08-16T08:00:00.000Z"
+            }
+          })
+        };
+      }
+
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<HomePage user={user} />);
+
+    fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
+      target: { value: "Draft body" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.find(
+          ([input, init]) => String(input) === "/api/drafts" && init?.method === "POST"
+        )
+      ).toBeTruthy()
+    );
+
+    expect(
+      String(
+        fetchMock.mock.calls.find(
+          ([input, init]) => String(input) === "/api/drafts" && init?.method === "POST"
+        )?.[1]?.body
+      )
+    ).not.toContain('"draftId":null');
+  });
+
   it("shows the send-to-draft action on xiaohongshu results", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -123,11 +204,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("shows install guidance when the extension is unavailable", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -172,11 +250,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("renders login required feedback from the bridge", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -207,11 +282,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("renders unsupported page feedback from the bridge", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -242,11 +314,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("shows opening and success feedback while sending a xiaohongshu draft", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -303,11 +372,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("does not show the send-to-draft action on non-xiaohongshu results", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "linkedin", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "linkedin", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -326,11 +392,8 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("ignores duplicate send clicks while a draft request is already opening", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
-      })
+    const fetchMock = createWorkspaceFetchMock({
+      results: [{ platform: "xiaohongshu", title: "标题", content: "正文" }]
     });
 
     vi.stubGlobal("fetch", fetchMock);
