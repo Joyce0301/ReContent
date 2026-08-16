@@ -17,30 +17,22 @@ const AUTH_MODE_COPY: Record<
   }
 > = {
   login: {
-    eyebrow: "Return to flow",
-    title: "Welcome back to your content desk.",
-    description:
-      "登录后继续你的内容重制工作台，保留更稳定的生成节奏和个人化创作偏好。",
-    submitLabel: "登录并进入工作台",
-    switchLabel: "还没有账号？",
-    switchAction: "创建一个新账号"
+    eyebrow: "Login",
+    title: "欢迎回来。",
+    description: "继续进入你的 ReContent 工作台。",
+    submitLabel: "登录并回到工作台",
+    switchLabel: "第一次来？",
+    switchAction: "去创建账号"
   },
   register: {
-    eyebrow: "Create access",
-    title: "Set up a calm, high-focus creative workspace.",
-    description:
-      "注册后即可进入你的专属工作台，用同一套创作桌面管理内容输入、风格和平台输出。",
+    eyebrow: "Register",
+    title: "创建你的账号。",
+    description: "注册后即可进入 ReContent。",
     submitLabel: "注册并开始使用",
-    switchLabel: "已经有账号了？",
+    switchLabel: "已经有账号？",
     switchAction: "直接登录"
   }
 };
-
-const TRUST_POINTS = [
-  "服务端签名会话，不把登录状态暴露在前端脚本里",
-  "密码经过哈希处理后再存储，为后续接数据库预留结构",
-  "登录后自动进入专属工作台，后面可平滑升级为 OAuth / 邮箱登录"
-];
 
 export function AuthExperience() {
   const router = useRouter();
@@ -89,75 +81,64 @@ export function AuthExperience() {
   };
 
   return (
-    <main className="auth-canvas relative isolate min-h-screen overflow-hidden">
-      <div className="auth-grid absolute inset-0 opacity-70" />
-      <div className="auth-orb auth-orb-one" />
-      <div className="auth-orb auth-orb-two" />
-      <div className="auth-orb auth-orb-three" />
+    <main className="poster-shell min-h-screen">
+      <div className="poster-marquee" aria-hidden="true">
+        <div className="poster-marquee-track">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <span key={index}>
+              ReContent Auth Show • Content In, Signal Out • Login / Register •
+            </span>
+          ))}
+        </div>
+      </div>
 
-      <div className="relative mx-auto flex min-h-screen w-full max-w-[1440px] flex-col justify-center px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
-        <section className="grid items-stretch gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)]">
-          <div className="flex flex-col justify-between rounded-[36px] border border-white/12 bg-[linear-gradient(145deg,rgba(8,15,28,0.88)_0%,rgba(10,26,49,0.78)_52%,rgba(12,34,63,0.7)_100%)] p-7 text-white shadow-[0_40px_120px_rgba(2,6,23,0.38)] backdrop-blur-xl sm:p-9">
-            <div className="space-y-7">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/6 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-sky-100/80">
-                <span className="inline-flex h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.8)]" />
-                Luminous Current
-              </div>
+      <div className="mx-auto flex min-h-[calc(100vh-56px)] w-full max-w-[1500px] items-center px-5 py-8 sm:px-8 lg:px-12">
+        <section className="grid w-full gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
+          <div className="poster-frame-dark rounded-[34px] p-6 sm:p-8 lg:p-10">
+            <div className="flex h-full flex-col justify-between gap-8">
+              <div className="space-y-6">
+                <div className="poster-pill inline-flex items-center gap-3 rounded-full px-4 py-2 text-[#fff2d0]">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#f7bf3b]" />
+                  <span className="poster-kicker">ReContent</span>
+                </div>
 
-              <div className="space-y-4">
-                <p className="max-w-xl text-[13px] uppercase tracking-[0.32em] text-sky-100/60">
-                  ReContent Authentication
-                </p>
-                <h1 className="max-w-2xl font-['Avenir_Next','Segoe_UI',sans-serif] text-4xl font-semibold leading-[1.02] tracking-[-0.04em] text-white sm:text-5xl lg:text-6xl">
-                  A refined gateway for focused content work.
-                </h1>
-                <p className="max-w-2xl text-sm leading-7 text-slate-200/76 sm:text-[15px]">
-                  登录不是一个插曲，而是进入创作桌面的第一道节奏。让身份、输入和生成都在一块更安静、更可信的界面里发生。
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              {[
-                ["Signed session", "服务端签名 cookie，避免把敏感状态交给前端脚本。"],
-                ["Fluid motion", "背景、按钮与表单切换都带有轻缓而明确的动态反馈。"],
-                ["Upgrade path", "当前骨架可继续接数据库、OAuth 与正式邮件登录链路。"]
-              ].map(([title, description]) => (
-                <div
-                  key={title}
-                  className="rounded-[24px] border border-white/12 bg-white/6 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                >
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-sky-100/58">
-                    {title}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-100/82">
-                    {description}
+                <div className="space-y-4">
+                  <p className="poster-kicker text-[#f6d48d]">Auth</p>
+                  <h1 className="poster-display max-w-[10ch] text-[4.4rem] text-[#fff3d6] sm:text-[5.6rem] lg:text-[7.2rem]">
+                    Enter.
+                    <br />
+                    Create.
+                  </h1>
+                  <p className="max-w-2xl text-base leading-8 text-[#f8e7c0]/88">
+                    登录或注册后继续使用 ReContent。
                   </p>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-[36px] border border-white/55 bg-[linear-gradient(180deg,rgba(255,255,255,0.92)_0%,rgba(244,248,255,0.84)_46%,rgba(233,242,255,0.78)_100%)] p-5 shadow-[0_32px_96px_rgba(15,23,42,0.18),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-xl sm:p-7">
-            <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(56,189,248,0.65),transparent)]" />
-
-            <div className="relative space-y-6">
-              <div className="flex items-start justify-between gap-4">
+          <div className="poster-frame rounded-[34px] bg-[rgba(250,242,218,0.97)] p-5 sm:p-7">
+            <div className="space-y-6">
+              <div className="flex flex-col gap-5 border-b-2 border-[var(--line)] pb-5 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-3">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                  <p className="poster-kicker text-[var(--accent-deep)]">
                     {copy.eyebrow}
                   </p>
                   <div className="space-y-2">
-                    <h2 className="font-['Iowan_Old_Style','Palatino',serif] text-3xl leading-tight tracking-[-0.03em] text-slate-950">
-                      {copy.title}
+                    <h2 className="poster-display max-w-[9ch] text-[3.1rem] text-[var(--ink)] sm:text-[3.8rem]">
+                      {mode === "login" ? "Log back in" : "Start your desk"}
                     </h2>
-                    <p className="max-w-xl text-sm leading-7 text-slate-600">
+                    <p className="max-w-xl text-sm leading-7 text-[var(--ink-soft)]">
                       {copy.description}
                     </p>
                   </div>
                 </div>
 
-                <div className="inline-flex rounded-full border border-slate-200/80 bg-white/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.92)]">
+                <div
+                  className="poster-pill inline-flex rounded-full p-1"
+                  role="tablist"
+                  aria-label="认证模式切换"
+                >
                   {(["login", "register"] as const).map(option => {
                     const isActive = option === mode;
 
@@ -165,10 +146,13 @@ export function AuthExperience() {
                       <button
                         key={option}
                         type="button"
-                        className={`rounded-full px-4 py-2 text-xs font-medium transition ${
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-pressed={isActive}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold uppercase tracking-[0.08em] ${
                           isActive
-                            ? "bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.22)]"
-                            : "text-slate-500 hover:text-slate-900"
+                            ? "bg-[var(--ink)] text-[#fff2d0]"
+                            : "text-[var(--ink-soft)]"
                         }`}
                         onClick={() => setMode(option)}
                       >
@@ -180,7 +164,7 @@ export function AuthExperience() {
               </div>
 
               <form
-                className="grid gap-4 rounded-[28px] border border-white/80 bg-white/72 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                className="grid gap-4"
                 onSubmit={event => {
                   event.preventDefault();
                   handleSubmit();
@@ -188,14 +172,14 @@ export function AuthExperience() {
               >
                 {mode === "register" && (
                   <label className="space-y-2">
-                    <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                    <span className="poster-kicker text-[var(--ink-soft)]">
                       Display name
                     </span>
                     <input
                       aria-label="显示名称"
                       autoComplete="nickname"
-                      className="auth-input"
-                      placeholder="例如：Joyce / Dylan / Team ReContent"
+                      className="poster-field rounded-[20px]"
+                      placeholder="例如 Joyce / Dylan / Team ReContent"
                       value={displayName}
                       onChange={event => setDisplayName(event.target.value)}
                     />
@@ -203,13 +187,13 @@ export function AuthExperience() {
                 )}
 
                 <label className="space-y-2">
-                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                  <span className="poster-kicker text-[var(--ink-soft)]">
                     Email
                   </span>
                   <input
                     aria-label="邮箱地址"
                     autoComplete="email"
-                    className="auth-input"
+                    className="poster-field rounded-[20px]"
                     placeholder="you@example.com"
                     value={email}
                     onChange={event => setEmail(event.target.value)}
@@ -217,13 +201,13 @@ export function AuthExperience() {
                 </label>
 
                 <label className="space-y-2">
-                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                  <span className="poster-kicker text-[var(--ink-soft)]">
                     Password
                   </span>
                   <input
                     aria-label="密码"
                     autoComplete={mode === "login" ? "current-password" : "new-password"}
-                    className="auth-input"
+                    className="poster-field rounded-[20px]"
                     placeholder={mode === "login" ? "输入你的密码" : "至少 8 位字符"}
                     type="password"
                     value={password}
@@ -232,50 +216,32 @@ export function AuthExperience() {
                 </label>
 
                 <button
-                  className="auth-cta mt-2"
+                  className="poster-button mt-2 min-h-[3.5rem] rounded-[20px] px-5 text-sm font-bold uppercase tracking-[0.08em]"
                   disabled={isPending}
                   type="submit"
                 >
-                  <span className="auth-cta-core">
-                    {isPending ? "正在验证身份…" : copy.submitLabel}
-                  </span>
+                  {isPending ? "正在验证身份…" : copy.submitLabel}
                 </button>
 
-                {error && (
+                {error ? (
                   <div
-                    className="rounded-[20px] border border-rose-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(255,241,242,0.92)_100%)] px-4 py-3 text-sm text-rose-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                    className="rounded-[20px] border-2 border-[var(--line)] bg-[rgba(142,35,24,0.1)] px-4 py-3 text-sm leading-6 text-[var(--accent-deep)] shadow-[4px_4px_0_rgba(23,18,15,0.92)]"
                     role="alert"
                   >
                     {error}
                   </div>
-                )}
+                ) : null}
               </form>
 
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.92fr)]">
-                <div className="rounded-[24px] border border-slate-200/80 bg-white/66 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    Why this flow
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-                    {TRUST_POINTS.map(point => (
-                      <li key={point} className="flex gap-2">
-                        <span className="mt-2 inline-flex h-1.5 w-1.5 rounded-full bg-sky-500" />
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="rounded-[24px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.96)_0%,rgba(236,246,255,0.86)_54%,rgba(220,234,254,0.82)_100%)] p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    {copy.switchLabel}
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-slate-600">
-                    当前这版会先用可运行的本地账号体系完成闭环，后面可以无缝升级到数据库和第三方登录。
-                  </p>
+              <div className="grid gap-4">
+                <article className="rounded-[24px] border-2 border-[var(--line)] bg-[var(--accent-deep)] p-4 text-[#fff2d0] shadow-[4px_4px_0_rgba(23,18,15,0.92)]">
+                  <p className="poster-kicker text-[#f7d48b]">{copy.switchLabel}</p>
+                  <h3 className="poster-display mt-3 text-[2.25rem]">
+                    {mode === "login" ? "New here?" : "Welcome back?"}
+                  </h3>
                   <button
                     type="button"
-                    className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-900 transition hover:text-sky-600"
+                    className="poster-button-ghost mt-5 rounded-[18px] px-4 py-3 text-sm font-bold uppercase tracking-[0.08em]"
                     onClick={() =>
                       setMode(currentMode =>
                         currentMode === "login" ? "register" : "login"
@@ -283,9 +249,8 @@ export function AuthExperience() {
                     }
                   >
                     {copy.switchAction}
-                    <span aria-hidden="true">{"->"}</span>
                   </button>
-                </div>
+                </article>
               </div>
             </div>
           </div>

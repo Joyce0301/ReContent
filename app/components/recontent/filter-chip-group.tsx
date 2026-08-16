@@ -26,10 +26,10 @@ export function FilterChipGroup<T extends string>({
             type="button"
             onClick={() => onToggle(option.key)}
             aria-pressed={active}
-            className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+            className={`inline-flex min-h-10 items-center gap-2 rounded-[18px] border-2 px-3 py-2 text-xs font-bold uppercase tracking-[0.06em] shadow-[4px_4px_0_rgba(23,18,15,0.84)] ${
               active
-                ? "border-sky-200 bg-sky-50 text-sky-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
-                : "border-slate-200 bg-white/75 text-slate-500 hover:border-slate-300 hover:text-slate-700"
+                ? "border-[var(--line)] bg-[var(--accent)] text-[var(--ink)]"
+                : "border-[var(--line)] bg-[rgba(255,248,227,0.78)] text-[var(--ink-soft)] hover:-translate-x-[2px] hover:-translate-y-[2px]"
             }`}
           >
             {option.leading && (

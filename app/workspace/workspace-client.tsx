@@ -194,7 +194,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
 
   return (
     <>
-      <main className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-1 flex-col gap-7 px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
+      <main className="poster-shell mx-auto flex min-h-screen w-full max-w-[1440px] flex-1 flex-col gap-7 px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
         <RecontentHeader user={user} />
 
         <section className="grid flex-1 items-stretch gap-6 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.16fr)]">
@@ -234,7 +234,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
           />
         </section>
 
-        <footer className="mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/90 pt-4 text-[11px] leading-5 text-slate-500">
+        <footer className="poster-frame mt-1 flex flex-wrap items-center justify-between gap-2 rounded-[24px] px-4 py-3 text-[11px] leading-5 text-[var(--ink-soft)]">
           <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
           <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
         </footer>

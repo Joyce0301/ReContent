@@ -2,175 +2,245 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --paper: #f4e4be;
+  --paper-soft: #f8eed3;
+  --ink: #17120f;
+  --ink-soft: #43362d;
+  --accent: #d79a18;
+  --accent-deep: #8e2318;
+  --line: rgba(23, 18, 15, 0.88);
+  --shadow-offset: 8px 8px 0 rgba(23, 18, 15, 0.96);
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  background-color: #f6f7f9;
-  background-image:
-    radial-gradient(circle at top center, rgba(255, 255, 255, 0.88), transparent 34%),
-    radial-gradient(circle at 15% 0%, rgba(191, 219, 254, 0.32), transparent 28%),
-    linear-gradient(180deg, #fbfbf8 0%, #f2f5f8 38%, #ebf0f5 100%);
-  color: #111827;
+  font-family: var(--font-body), sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 218, 115, 0.3), transparent 28%),
+    radial-gradient(circle at 80% 18%, rgba(142, 35, 24, 0.18), transparent 24%),
+    linear-gradient(180deg, #f9efcf 0%, #f3dfac 42%, #e9c56d 100%);
+  color: var(--ink);
   @apply antialiased;
 }
 
+a,
+button,
+input,
+textarea {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
 ::selection {
-  background-color: rgb(96 165 250 / 22%);
+  background-color: rgba(142, 35, 24, 0.2);
 }
 
-.auth-canvas {
-  background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, 0.24), transparent 28%),
-    radial-gradient(circle at 80% 20%, rgba(191, 219, 254, 0.24), transparent 24%),
-    linear-gradient(135deg, #07111f 0%, #0a1930 34%, #0c2547 58%, #eaf2ff 160%);
-}
-
-.auth-grid {
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
-  background-position: center;
-  background-size: 44px 44px;
-  mask-image: radial-gradient(circle at center, black 36%, transparent 92%);
-}
-
-.auth-orb {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(18px);
-  opacity: 0.78;
-  animation: authFloat 18s ease-in-out infinite;
-}
-
-.auth-orb-one {
-  top: 9%;
-  left: 10%;
-  height: 18rem;
-  width: 18rem;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(103, 232, 249, 0.82), rgba(37, 99, 235, 0.18) 70%, transparent 76%);
-}
-
-.auth-orb-two {
-  right: 12%;
-  top: 16%;
-  height: 14rem;
-  width: 14rem;
-  background:
-    radial-gradient(circle at 42% 40%, rgba(191, 219, 254, 0.88), rgba(56, 189, 248, 0.22) 68%, transparent 78%);
-  animation-delay: -5s;
-}
-
-.auth-orb-three {
-  bottom: 10%;
-  right: 28%;
-  height: 22rem;
-  width: 22rem;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.28), rgba(59, 130, 246, 0.18) 62%, transparent 80%);
-  animation-delay: -11s;
-}
-
-.auth-input {
-  width: 100%;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(203, 213, 225, 0.92);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.88) 100%);
-  padding: 0.95rem 1rem;
-  font-size: 0.95rem;
-  color: #0f172a;
-  outline: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 rgba(14, 165, 233, 0);
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
-}
-
-.auth-input:focus {
-  border-color: rgba(56, 189, 248, 0.78);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    0 0 0 4px rgba(56, 189, 248, 0.12);
-  transform: translateY(-1px);
-}
-
-.auth-input::placeholder {
-  color: #94a3b8;
-}
-
-.auth-cta {
+.poster-shell {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
-  border: none;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, #020617 0%, #0f172a 24%, #0ea5e9 100%);
-  padding: 0;
-  color: white;
-  box-shadow:
-    0 24px 56px rgba(14, 165, 233, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  transition:
-    transform 200ms ease,
-    box-shadow 200ms ease,
-    filter 200ms ease;
+  background:
+    linear-gradient(180deg, rgba(255, 251, 239, 0.76), rgba(244, 228, 190, 0.94)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(23, 18, 15, 0.05) 0,
+      rgba(23, 18, 15, 0.05) 1px,
+      transparent 1px,
+      transparent 36px
+    );
 }
 
-.auth-cta::before {
+.poster-shell::before,
+.poster-shell::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.24) 46%, transparent 60%);
-  transform: translateX(-130%);
-  transition: transform 480ms ease;
+  z-index: 0;
+  border-radius: 9999px;
+  filter: blur(12px);
+  opacity: 0.55;
+  animation: posterFloat 12s ease-in-out infinite;
+  pointer-events: none;
 }
 
-.auth-cta:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow:
-    0 30px 72px rgba(14, 165, 233, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  filter: saturate(1.06);
+.poster-shell::before {
+  top: -5rem;
+  right: 8%;
+  height: 14rem;
+  width: 14rem;
+  background: radial-gradient(circle, rgba(142, 35, 24, 0.4), transparent 68%);
 }
 
-.auth-cta:hover:not(:disabled)::before {
-  transform: translateX(130%);
+.poster-shell::after {
+  left: -4rem;
+  bottom: -4rem;
+  height: 16rem;
+  width: 16rem;
+  background: radial-gradient(circle, rgba(215, 154, 24, 0.48), transparent 72%);
+  animation-delay: -4s;
 }
 
-.auth-cta:disabled {
-  cursor: wait;
-  opacity: 0.78;
-}
-
-.auth-cta-core {
+.poster-shell > * {
   position: relative;
   z-index: 1;
-  display: inline-flex;
-  min-height: 3.5rem;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.95rem 1.5rem;
-  font-size: 0.92rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
-@keyframes authFloat {
+.poster-frame {
+  border: 2px solid var(--line);
+  background: rgba(250, 242, 218, 0.92);
+  box-shadow: var(--shadow-offset);
+}
+
+.poster-frame-dark {
+  border: 2px solid var(--line);
+  background:
+    radial-gradient(circle at top left, rgba(255, 211, 94, 0.12), transparent 34%),
+    linear-gradient(180deg, #27130f 0%, #41110e 100%);
+  box-shadow: var(--shadow-offset);
+  color: #fef7e4;
+}
+
+.poster-kicker {
+  font-family: var(--font-label), monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.poster-display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.01em;
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.poster-marquee {
+  display: flex;
+  overflow: hidden;
+  border-top: 2px solid var(--line);
+  border-bottom: 2px solid var(--line);
+  background: var(--accent-deep);
+  color: #fff2d0;
+}
+
+.poster-marquee-track {
+  display: flex;
+  min-width: max-content;
+  animation: posterScroll 20s linear infinite;
+}
+
+.poster-marquee-track span {
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.6rem 1rem;
+}
+
+.poster-field {
+  width: 100%;
+  border: 2px solid var(--line);
+  background: rgba(255, 249, 235, 0.9);
+  color: var(--ink);
+  padding: 0.95rem 1rem;
+  outline: none;
+  box-shadow: 5px 5px 0 rgba(23, 18, 15, 0.9);
+}
+
+.poster-field:focus {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 rgba(142, 35, 24, 0.92);
+}
+
+.poster-field:focus-visible {
+  outline: 3px solid var(--accent-deep);
+  outline-offset: 3px;
+}
+
+.poster-field::placeholder {
+  color: rgba(67, 54, 45, 0.62);
+}
+
+.poster-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, #f7bf3b 0%, #d89410 100%);
+  color: var(--ink);
+  box-shadow: 6px 6px 0 rgba(23, 18, 15, 0.96);
+}
+
+.poster-button:hover:not(:disabled),
+.poster-button:focus-visible {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 rgba(23, 18, 15, 0.96);
+}
+
+.poster-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.poster-button-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--line);
+  background: rgba(255, 248, 227, 0.82);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 rgba(23, 18, 15, 0.86);
+}
+
+.poster-button-ghost:hover:not(:disabled),
+.poster-button-ghost:focus-visible {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 rgba(23, 18, 15, 0.9);
+}
+
+.poster-pill {
+  border: 2px solid var(--line);
+  background: rgba(255, 245, 220, 0.78);
+  box-shadow: 4px 4px 0 rgba(23, 18, 15, 0.82);
+}
+
+@keyframes posterScroll {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes posterFloat {
   0%,
   100% {
     transform: translate3d(0, 0, 0) scale(1);
   }
 
   50% {
-    transform: translate3d(0, -20px, 0) scale(1.05);
+    transform: translate3d(0, -16px, 0) scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

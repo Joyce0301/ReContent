@@ -45,32 +45,28 @@ export function ResultDocument({
     : isLinkedIn
       ? "text-[15px] leading-8 sm:text-base"
       : "text-[15px] leading-[2.1] sm:text-base";
-  const paragraphToneClass = isTwitter
-    ? "text-slate-700"
-    : isLinkedIn
-      ? "text-slate-700"
-      : "text-slate-700";
+  const paragraphToneClass = "text-[var(--ink-soft)]";
   const isSendingToDraft = draftStatus?.status === "opening";
   const showBridgeInstallGuide =
     result.platform === "xiaohongshu" &&
     draftStatus?.status === "bridge_unavailable";
 
   return (
-    <article className="flex h-full flex-col rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(242,246,250,0.96)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_18px_44px_rgba(148,163,184,0.12)]">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/90 px-5 py-4 sm:px-6 sm:py-5">
+    <article className="flex h-full flex-col rounded-[28px] border-2 border-[var(--line)] bg-[rgba(255,250,238,0.92)] shadow-[5px_5px_0_rgba(23,18,15,0.84)]">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[var(--line)] px-5 py-4 sm:px-6 sm:py-5">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-slate-200 bg-white px-1 text-[10px] tracking-normal text-slate-600">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--ink-soft)]">
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-[var(--line)] bg-[var(--accent)] px-1 text-[10px] tracking-normal text-[var(--ink)]">
               {PLATFORM_BADGES[result.platform]}
             </span>
             <span>{PLATFORM_LABELS[result.platform]}</span>
           </div>
           {result.title ? (
-            <h3 className="mt-3 max-w-3xl text-xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-[24px]">
+            <h3 className="mt-3 max-w-3xl break-words text-[1.7rem] font-semibold leading-tight text-[var(--ink)] sm:text-[2rem]">
               {result.title}
             </h3>
           ) : (
-            <h3 className="mt-3 text-base font-medium text-slate-700 sm:text-lg">
+            <h3 className="mt-3 text-base font-medium text-[var(--ink-soft)] sm:text-lg">
               可直接发布的正文草稿
             </h3>
           )}
@@ -83,7 +79,7 @@ export function ResultDocument({
                 type="button"
                 onClick={() => onSendToDraft(result)}
                 disabled={isSendingToDraft}
-                className="inline-flex min-h-9 items-center rounded-full bg-slate-900 px-3.5 text-[11px] text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="poster-button min-h-9 rounded-[16px] px-3.5 text-[11px] font-bold uppercase tracking-[0.06em]"
               >
                 发送到小红书草稿
               </button>
@@ -91,7 +87,7 @@ export function ResultDocument({
             <button
               type="button"
               onClick={() => onCopy(result.platform, copyText)}
-              className="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white/85 px-3.5 text-[11px] text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+              className="poster-button-ghost min-h-9 rounded-[16px] px-3.5 text-[11px] font-bold uppercase tracking-[0.06em]"
             >
               {copyStatus === "success"
                 ? "已复制"
@@ -106,7 +102,7 @@ export function ResultDocument({
               aria-live="polite"
               className="max-w-[28rem] space-y-2"
             >
-              <p className="text-[11px] leading-5 text-slate-500">
+              <p className="text-[11px] leading-5 text-[var(--ink-soft)]">
                 {draftStatus.message}
               </p>
               {showBridgeInstallGuide ? (
@@ -115,7 +111,7 @@ export function ResultDocument({
             </div>
           ) : null}
           {showBridgeInstallGuide ? (
-            <p className="max-w-[28rem] text-[11px] leading-5 text-slate-500">
+            <p className="max-w-[28rem] text-[11px] leading-5 text-[var(--ink-soft)]">
               你仍然可以先点“复制内容”，手动粘贴到小红书创作页。
             </p>
           ) : null}
@@ -124,7 +120,7 @@ export function ResultDocument({
 
       <div className="flex-1 overflow-auto px-5 py-6 sm:px-6 sm:py-7">
         <div
-          className={`mx-auto flex ${documentWidthClass} flex-col gap-5 ${documentTypographyClass} text-slate-800`}
+          className={`mx-auto flex ${documentWidthClass} flex-col gap-5 ${documentTypographyClass} text-[var(--ink)]`}
         >
           <p className="sr-only" aria-live="polite">
             {copyStatus === "success"
