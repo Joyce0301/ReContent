@@ -18,7 +18,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label="输入模式"
-      className="inline-flex rounded-full border border-slate-200 bg-white/70 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+      className="poster-pill inline-flex rounded-[20px] p-1"
     >
       {options.map(option => {
         const active = option.value === value;
@@ -30,10 +30,10 @@ export function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(option.value)}
-            className={`min-w-[92px] rounded-full px-3 py-2 text-xs font-medium transition ${
+            className={`min-w-[104px] rounded-[16px] px-3 py-2 text-xs font-bold uppercase tracking-[0.06em] ${
               active
-                ? "bg-white text-slate-900 shadow-[0_4px_14px_rgba(148,163,184,0.18)]"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-[var(--ink)] text-[#fff2d0]"
+                : "text-[var(--ink-soft)]"
             }`}
           >
             {option.label}

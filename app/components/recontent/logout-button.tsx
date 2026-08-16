@@ -10,7 +10,7 @@ export function LogoutButton() {
   return (
     <button
       type="button"
-      className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200/90 bg-white/80 px-3.5 py-2 text-xs font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] transition hover:border-slate-300 hover:text-slate-950"
+      className="poster-button-ghost min-h-11 rounded-[18px] px-3.5 py-2 text-xs font-bold uppercase tracking-[0.06em]"
       onClick={() => {
         startTransition(async () => {
           await fetch("/api/auth/logout", { method: "POST" });
