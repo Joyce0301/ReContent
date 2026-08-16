@@ -1,7 +1,7 @@
 # MySQL Auth Setup
 
-This auth implementation expects a MySQL database with `users` and `sessions`
-tables.
+This auth implementation expects a MySQL database with `users`, `sessions`, and
+`drafts` tables.
 
 ## Required environment
 
@@ -34,6 +34,8 @@ Also set:
   migration afterward.
 - **Existing database:** If the `users` table predates the avatar columns, run
   both guarded migrations below, in order, before enabling S3 avatar uploads.
+  If the database predates draft persistence, also run the guarded drafts
+  migration before exposing `/api/drafts` or the workspace draft shelf.
 
 ## Avatar metadata migration
 
@@ -111,6 +113,51 @@ Rollback scripts exist beside both migrations. Roll back the confirmation-token
 column first, and only after every application revision that references it has
 been drained. The metadata rollback drops avatar data; use it only after the
 application is on a revision that does not query those columns.
+
+## Drafts migration
+
+For an existing database, run the
+[2026-08-16 drafts migration](migrations/2026-08-16-add-drafts.sql) before any
+application revision relies on workspace draft save / restore.
+
+```bash
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" \
+  < docs/auth/migrations/2026-08-16-add-drafts.sql
+```
+
+Verify that the table exists:
+
+```bash
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" <<'SQL'
+SHOW CREATE TABLE drafts;
+SQL
+```
+
+If you need to roll it back, drain every application revision that reads or
+writes `/api/drafts` first, then run:
+
+```bash
+MYSQL_PWD="$MYSQL_PASSWORD" mysql \
+  --host="$MYSQL_HOST" \
+  --port="${MYSQL_PORT:-3306}" \
+  --user="$MYSQL_USER" \
+  --database="$MYSQL_DATABASE" \
+  --ssl-mode=VERIFY_IDENTITY \
+  --ssl-ca="$MYSQL_SSL_CA_PATH" \
+  < docs/auth/migrations/2026-08-16-add-drafts.rollback.sql
+```
 
 ## Confirmation concurrency
 

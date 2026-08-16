@@ -29,6 +29,10 @@ type InputPanelProps = {
   onToneChange: (tone: ToneKey) => void;
   onCustomInstructionChange: (value: string) => void;
   onSubmit: () => void;
+  onSaveDraft: () => void;
+  isSavingDraft: boolean;
+  draftSaveDisabled: boolean;
+  draftStatusMessage: string | null;
 };
 
 const INPUT_MODE_OPTIONS: Array<{ value: InputMode; label: string }> = [
@@ -52,7 +56,11 @@ export function InputPanel({
   onPlatformChange,
   onToneChange,
   onCustomInstructionChange,
-  onSubmit
+  onSubmit,
+  onSaveDraft,
+  isSavingDraft,
+  draftSaveDisabled,
+  draftStatusMessage
 }: InputPanelProps) {
   return (
     <div className="poster-frame flex flex-col gap-5 rounded-[30px] bg-[rgba(250,242,218,0.95)] p-4 sm:p-5">
@@ -165,22 +173,38 @@ export function InputPanel({
           <p className="text-[11px] leading-5 text-[var(--ink-soft)]">
             每次只生成当前选中的平台版本，内容长度建议控制在 4,000 字以内。
           </p>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={!hasContent || isPending}
-            className="poster-button min-h-10 gap-2 rounded-[18px] px-4 py-2 text-xs font-bold uppercase tracking-[0.06em]"
-          >
-            {isPending ? (
-              <>
-                <span className="h-3 w-3 animate-spin rounded-full border border-[var(--ink)]/40 border-t-transparent" />
-                正在重制…
-              </>
-            ) : (
-              "开始重制"
-            )}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={onSaveDraft}
+              disabled={draftSaveDisabled || isSavingDraft}
+              className="poster-button-ghost min-h-10 rounded-[18px] px-4 py-2 text-xs font-bold uppercase tracking-[0.06em]"
+            >
+              {isSavingDraft ? "正在保存…" : "保存草稿"}
+            </button>
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={!hasContent || isPending}
+              className="poster-button min-h-10 gap-2 rounded-[18px] px-4 py-2 text-xs font-bold uppercase tracking-[0.06em]"
+            >
+              {isPending ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border border-[var(--ink)]/40 border-t-transparent" />
+                  正在重制…
+                </>
+              ) : (
+                "开始重制"
+              )}
+            </button>
+          </div>
         </div>
+
+        {draftStatusMessage ? (
+          <div className="rounded-[16px] border-2 border-[var(--line)] bg-[rgba(255,248,227,0.8)] px-3 py-2 text-[11px] leading-5 text-[var(--ink-soft)] shadow-[4px_4px_0_rgba(23,18,15,0.82)]">
+            {draftStatusMessage}
+          </div>
+        ) : null}
 
         {error && (
           <div
