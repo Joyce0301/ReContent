@@ -1,6 +1,7 @@
 .terraform/
 *.tfstate
 *.tfstate.*
+backend.prod.hcl
 crash.log
 override.tf
 override.tf.json
