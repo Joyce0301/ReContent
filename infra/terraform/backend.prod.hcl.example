@@ -1,0 +1,5 @@
+bucket         = "recontent-terraform-state-EXAMPLE"
+key            = "prod/infra.tfstate"
+region         = "us-east-1"
+dynamodb_table = "recontent-terraform-locks"
+encrypt        = true
