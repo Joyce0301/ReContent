@@ -1,6 +1,6 @@
 ---
 name: recontent-aws-triage
-description: Use when diagnosing ReContent on AWS, including ECS deployment failures, unhealthy ALB targets, CloudWatch alarms, startup crashes, 4xx or 5xx spikes, and RCA requests.
+description: Use when diagnosing ReContent on AWS, including ECS deployment failures, unhealthy ALB targets, CloudWatch alarms, startup crashes, 4xx or 5xx spikes, suspicious traffic, and RCA requests.
 ---
 
 # ReContent AWS Triage
@@ -64,9 +64,20 @@ Interpretation:
 - high ELB 5xx: load-balancer issue or no healthy targets
 - high target 5xx: application is reachable but requests are failing
 
+For traffic or 4xx spikes, compare the incident with the previous 7 full days using the same metric, period, statistic, load-balancer dimension, and UTC boundaries. Record daily request totals, 1-minute or 5-minute peaks, target 4xx ratio, ELB 4xx count, duration, and recurrence.
+
+Classify as:
+
+- `normal variation`: close to baseline with a normal error ratio
+- `statistical anomaly`: materially above baseline or dominated by 4xx
+- `suspected automated scanning`: abrupt repeated bursts with a high 4xx ratio
+- `confirmed malicious traffic`: source IP, path, user agent, WAF, or access-log evidence proves it
+
+CloudWatch aggregate metrics alone cannot prove an attack. If ALB access logs are disabled, state that source IP, path, and user agent cannot be reconstructed.
+
 ### 4. Align CloudWatch
 
-Use one window across deployments, ECS events, ALB metrics, alarms, and logs: 15 minutes for small incidents, one hour for deployment incidents. An isolated metric is not a root cause until timestamps match.
+Use one window across deployments, ECS events, ALB metrics, alarms, and logs: 15 minutes for small incidents, one hour for deployment incidents. An isolated metric is not a root cause until timestamps match. Compare history with the same period and statistic.
 
 ### 5. Read Relevant Logs
 
