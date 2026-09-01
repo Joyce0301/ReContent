@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ReContent AWS 云架构",
+    "locale": "zh-CN",
+    "output": "recontent-aws.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Joyce0301/ReContent.git",
+      "revision": "8bbba4bbe533055680b60ca5e8f866180c50327a"
+    },
+    "viewBox": [1280, 680],
+    "views": [
+      {
+        "id": "runtime",
+        "label": "生产请求路径",
+        "focus": ["internet", "alb", "ecs", "rds"],
+        "note": "外部流量经 ALB 进入 ECS Fargate，应用用 TLS 连接 RDS MySQL。"
+      },
+      {
+        "id": "deploy",
+        "label": "部署链路",
+        "focus": ["github", "oidc", "ecr", "ecs"],
+        "note": "GitHub Actions 经 OIDC 假设部署角色，推镜像并更新 ECS 服务。"
+      },
+      {
+        "id": "ops",
+        "label": "运维观测",
+        "focus": ["alb", "ecs", "cloudwatch"],
+        "note": "日志、ALB 错误率、ECS 任务数和 unhealthy hosts 汇总到 CloudWatch。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "internet",
+      "type": "external",
+      "label": "Internet",
+      "sublabel": "用户浏览器",
+      "pos": [40, 300],
+      "size": [130, 66]
+    },
+    {
+      "id": "alb",
+      "type": "cloud",
+      "label": "Application Load Balancer",
+      "sublabel": "ecs-express-gateway-alb",
+      "pos": [280, 300],
+      "size": [190, 72],
+      "sources": [
+        { "path": "infra/terraform/alb.tf", "label": "target groups" },
+        { "path": "infra/terraform/variables.tf", "label": "alb arn" }
+      ]
+    },
+    {
+      "id": "ecs",
+      "type": "backend",
+      "label": "ECS Fargate Service",
+      "sublabel": "recontent-b13f / Main :80",
+      "pos": [570, 300],
+      "size": [190, 76],
+      "sources": [{ "path": "infra/terraform/ecs.tf", "label": "ecs service" }]
+    },
+    {
+      "id": "rds",
+      "type": "database",
+      "label": "RDS MySQL",
+      "sublabel": "database-recontent-login :3306",
+      "pos": [900, 300],
+      "size": [190, 76],
+      "sources": [
+        { "path": "infra/terraform/rds.tf", "label": "rds mysql" },
+        { "path": "app/lib/auth/db.ts", "label": "mysql TLS" }
+      ]
+    },
+    {
+      "id": "secrets",
+      "type": "security",
+      "label": "Secrets Manager",
+      "sublabel": "AUTH / KIMI / FIRECRAWL / RDS",
+      "pos": [800, 115],
+      "size": [190, 70],
+      "sources": [
+        { "path": "infra/terraform/secrets.tf", "label": "secrets" },
+        { "path": "infra/terraform/locals.tf", "label": "task env" }
+      ]
+    },
+    {
+      "id": "avatarS3",
+      "type": "cloud",
+      "label": "S3 Avatar Bucket",
+      "sublabel": "recontent-avatar-pipeline-20260726",
+      "pos": [570, 500],
+      "size": [190, 74],
+      "sources": [
+        { "path": "infra/terraform/variables.tf", "label": "bucket name" },
+        { "path": "app/lib/avatar/s3-storage.ts", "label": "presigned post" }
+      ]
+    },
+    {
+      "id": "avatarLambda",
+      "type": "backend",
+      "label": "Avatar Processor Lambda",
+      "sublabel": "S3 event -> WebP",
+      "pos": [1010, 500],
+      "size": [190, 74],
+      "sources": [{ "path": "lambda/avatar-processor/src/handler.ts", "label": "lambda handler" }]
+    },
+    {
+      "id": "cloudwatch",
+      "type": "cloud",
+      "label": "CloudWatch",
+      "sublabel": "logs / alarms / dashboard",
+      "pos": [1040, 115],
+      "size": [190, 70],
+      "sources": [{ "path": "infra/terraform/cloudwatch.tf", "label": "ops" }]
+    },
+    {
+      "id": "github",
+      "type": "external",
+      "label": "GitHub Actions",
+      "sublabel": "CI / Deploy",
+      "pos": [40, 115],
+      "size": [150, 66],
+      "sources": [{ "path": ".github/workflows/deploy.yml", "label": "deploy workflow" }]
+    },
+    {
+      "id": "oidc",
+      "type": "security",
+      "label": "IAM OIDC Role",
+      "sublabel": "github-actions-recontent-deploy",
+      "pos": [280, 115],
+      "size": [190, 70],
+      "sources": [{ "path": "infra/terraform/iam.tf", "label": "oidc role" }]
+    },
+    {
+      "id": "ecr",
+      "type": "cloud",
+      "label": "Amazon ECR",
+      "sublabel": "recontent image tags",
+      "pos": [520, 115],
+      "size": [190, 70],
+      "sources": [
+        { "path": "infra/terraform/ecr.tf", "label": "repository" },
+        { "path": ".github/workflows/deploy.yml", "label": "push image" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS us-east-1 / account 881424867096",
+      "wraps": ["alb", "ecs", "rds", "secrets", "avatarS3", "avatarLambda", "cloudwatch", "oidc", "ecr"]
+    },
+    {
+      "kind": "security-group",
+      "label": "VPC vpc-0d3c7b8a62a167449",
+      "wraps": ["alb", "ecs", "rds"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "internet-alb",
+      "from": "internet",
+      "to": "alb",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "alb-ecs",
+      "from": "alb",
+      "to": "ecs",
+      "label": "HTTP :80 /api/health",
+      "variant": "emphasis",
+      "labelDy": 70
+    },
+    {
+      "id": "ecs-rds",
+      "from": "ecs",
+      "to": "rds",
+      "label": "MySQL TLS :3306",
+      "variant": "security",
+      "labelDy": -38
+    },
+    {
+      "id": "ecs-secrets",
+      "from": "secrets",
+      "to": "ecs",
+      "label": "task secrets",
+      "variant": "security",
+      "labelDy": -36
+    },
+    {
+      "id": "ecs-avatar-s3",
+      "from": "ecs",
+      "to": "avatarS3",
+      "label": "presigned POST + object checks",
+      "variant": "security",
+      "labelDy": 28
+    },
+    {
+      "id": "s3-lambda",
+      "from": "avatarS3",
+      "to": "avatarLambda",
+      "label": "S3 event",
+      "variant": "dashed",
+      "labelDy": -28
+    },
+    {
+      "id": "lambda-writeback",
+      "from": "avatarLambda",
+      "to": "avatarS3",
+      "label": "write processed WebP",
+      "variant": "dashed",
+      "labelDy": 68
+    },
+    {
+      "id": "github-oidc",
+      "from": "github",
+      "to": "oidc",
+      "label": "AssumeRoleWithWebIdentity",
+      "variant": "security",
+      "labelDy": 56
+    },
+    {
+      "id": "oidc-ecr",
+      "from": "oidc",
+      "to": "ecr",
+      "label": "push image",
+      "variant": "emphasis",
+      "labelDy": -30
+    },
+    {
+      "id": "ecr-ecs",
+      "from": "ecr",
+      "to": "ecs",
+      "label": "deploy task definition",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 28
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "运行时",
+      "items": ["ALB 转发到 ECS Fargate 服务", "ECS 任务读取 Secrets Manager 注入的密钥", "RDS MySQL 8.4.9 提供认证和草稿存储"]
+    },
+    {
+      "dot": "emerald",
+      "title": "部署",
+      "items": ["GitHub Actions 通过 OIDC 假设 AWS 部署角色", "镜像推送到 ECR 后更新 ECS task definition", "Terraform 当前忽略 task_definition 漂移以配合现有部署流"]
+    },
+    {
+      "dot": "amber",
+      "title": "观测与已知边界",
+      "items": ["CloudWatch 管日志、错误率、任务数和 unhealthy hosts", "ALB listener/routing 仍由 ECS Express 管理", "Terraform 只管理 secret 容器，不保存 secret 值"]
+    }
+  ]
+}
