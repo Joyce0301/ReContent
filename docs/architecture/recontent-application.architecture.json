@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ReContent 应用架构",
+    "locale": "zh-CN",
+    "output": "recontent-application.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Joyce0301/ReContent.git",
+      "revision": "8bbba4bbe533055680b60ca5e8f866180c50327a"
+    },
+    "viewBox": [1220, 700],
+    "views": [
+      {
+        "id": "workspace-path",
+        "label": "工作区主链路",
+        "focus": ["user", "workspace", "nextApi", "repurpose", "aiProviders"],
+        "note": "登录用户在工作区提交文本或 URL，服务端 API 完成生成。"
+      },
+      {
+        "id": "state-path",
+        "label": "认证与草稿",
+        "focus": ["authPages", "nextApi", "mysql"],
+        "note": "登录、会话、用户资料和草稿都落在 MySQL。"
+      },
+      {
+        "id": "avatar-path",
+        "label": "头像处理",
+        "focus": ["nextApi", "avatarS3", "avatarLambda"],
+        "note": "应用签发上传表单，用户直传 S3，Lambda 异步生成 WebP。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "Browser",
+      "pos": [40, 310],
+      "size": [120, 64]
+    },
+    {
+      "id": "authPages",
+      "type": "frontend",
+      "label": "/auth",
+      "sublabel": "登录 / 注册",
+      "pos": [250, 160],
+      "size": [140, 66],
+      "sources": [{ "path": "app/auth/page.tsx", "label": "auth page" }]
+    },
+    {
+      "id": "workspace",
+      "type": "frontend",
+      "label": "/workspace",
+      "sublabel": "内容重制工作台",
+      "pos": [250, 310],
+      "size": [150, 66],
+      "sources": [{ "path": "app/workspace/workspace-client.tsx", "label": "workspace client" }]
+    },
+    {
+      "id": "nextApi",
+      "type": "backend",
+      "label": "Next.js API Routes",
+      "sublabel": "auth / drafts / profile / repurpose",
+      "pos": [500, 310],
+      "size": [178, 72],
+      "sources": [{ "path": "app/api/health/route.ts", "label": "route handlers" }]
+    },
+    {
+      "id": "repurpose",
+      "type": "backend",
+      "label": "Repurpose Workflow",
+      "sublabel": "抽取、Prompt、失败回退",
+      "pos": [780, 310],
+      "size": [170, 72],
+      "sources": [{ "path": "app/api/repurpose/workflow.ts", "label": "workflow" }]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL",
+      "sublabel": "users / sessions / drafts",
+      "pos": [500, 500],
+      "size": [170, 68],
+      "sources": [
+        { "path": "app/lib/auth/db.ts", "label": "mysql pool" },
+        { "path": "app/lib/drafts/store.ts", "label": "draft store" }
+      ]
+    },
+    {
+      "id": "contentFetch",
+      "type": "external",
+      "label": "公开网页",
+      "sublabel": "URL 正文抽取",
+      "pos": [780, 150],
+      "size": [150, 66],
+      "sources": [{ "path": "app/api/repurpose/content-extraction.ts", "label": "extractor" }]
+    },
+    {
+      "id": "aiProviders",
+      "type": "external",
+      "label": "Kimi / OpenAI / mock",
+      "sublabel": "JSON 内容生成",
+      "pos": [1040, 310],
+      "size": [154, 72],
+      "sources": [
+        { "path": "app/api/repurpose/kimi-client.ts", "label": "Kimi client" },
+        { "path": "app/api/repurpose/workflow.ts", "label": "provider fallback" }
+      ]
+    },
+    {
+      "id": "avatarS3",
+      "type": "cloud",
+      "label": "Avatar S3 Bucket",
+      "sublabel": "original / processed",
+      "pos": [780, 500],
+      "size": [170, 68],
+      "sources": [{ "path": "app/lib/avatar/s3-storage.ts", "label": "S3 storage" }]
+    },
+    {
+      "id": "avatarLambda",
+      "type": "backend",
+      "label": "Avatar Lambda",
+      "sublabel": "sharp -> WebP",
+      "pos": [1040, 500],
+      "size": [154, 68],
+      "sources": [{ "path": "lambda/avatar-processor/src/handler.ts", "label": "handler" }]
+    },
+    {
+      "id": "xhsExtension",
+      "type": "external",
+      "label": "Chrome 扩展",
+      "sublabel": "小红书草稿桥",
+      "pos": [500, 90],
+      "size": [170, 66],
+      "sources": [{ "path": "extensions/xiaohongshu-draft-bridge/manifest.json", "label": "manifest" }]
+    },
+    {
+      "id": "xhsCreator",
+      "type": "external",
+      "label": "小红书创作页",
+      "sublabel": "标题和正文填充",
+      "pos": [780, 40],
+      "size": [150, 66],
+      "sources": [{ "path": "extensions/xiaohongshu-draft-bridge/README.md", "label": "bridge docs" }]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ReContent Next.js 应用",
+      "wraps": ["authPages", "workspace", "nextApi", "repurpose"]
+    },
+    {
+      "kind": "security-group",
+      "label": "服务端受保护资源",
+      "wraps": ["nextApi", "mysql", "avatarS3"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "user-auth",
+      "from": "user",
+      "to": "authPages",
+      "label": "登录 / 注册",
+      "variant": "security",
+      "labelDy": -44
+    },
+    {
+      "id": "user-workspace",
+      "from": "user",
+      "to": "workspace",
+      "label": "编辑与生成",
+      "variant": "emphasis",
+      "labelDy": 28
+    },
+    {
+      "id": "workspace-api",
+      "from": "workspace",
+      "to": "nextApi",
+      "label": "fetch /api/*",
+      "variant": "emphasis",
+      "labelDy": 44
+    },
+    {
+      "id": "api-repurpose",
+      "from": "nextApi",
+      "to": "repurpose",
+      "label": "/api/repurpose",
+      "variant": "emphasis",
+      "labelDy": -44
+    },
+    {
+      "id": "api-mysql",
+      "from": "nextApi",
+      "to": "mysql",
+      "label": "SQL",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "repurpose-fetch",
+      "from": "repurpose",
+      "to": "contentFetch",
+      "label": "URL 模式抓取",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "repurpose-ai",
+      "from": "repurpose",
+      "to": "aiProviders",
+      "label": "JSON completion",
+      "variant": "emphasis"
+    },
+    {
+      "id": "avatar-presign",
+      "from": "nextApi",
+      "to": "avatarS3",
+      "label": "presigned POST / head / copy",
+      "variant": "security"
+    },
+    {
+      "id": "avatar-event",
+      "from": "avatarS3",
+      "to": "avatarLambda",
+      "label": "S3 event",
+      "variant": "dashed",
+      "labelDy": -26
+    },
+    {
+      "id": "avatar-writeback",
+      "from": "avatarLambda",
+      "to": "avatarS3",
+      "label": "write WebP",
+      "variant": "dashed",
+      "labelDy": 26
+    },
+    {
+      "id": "workspace-extension",
+      "from": "workspace",
+      "to": "xhsExtension",
+      "label": "postMessage 草稿",
+      "variant": "dashed"
+    },
+    {
+      "id": "extension-creator",
+      "from": "xhsExtension",
+      "to": "xhsCreator",
+      "label": "打开并填充",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主路径",
+      "items": ["用户登录后进入 /workspace", "文本或 URL 统一提交到 /api/repurpose", "Kimi 优先，OpenAI 其次，未配置时 mock"]
+    },
+    {
+      "dot": "emerald",
+      "title": "状态",
+      "items": ["MySQL 保存用户、会话和草稿", "头像上传状态也通过用户存储确认"]
+    },
+    {
+      "dot": "amber",
+      "title": "边界",
+      "items": ["浏览器扩展只填充小红书草稿，不保存或发布", "头像原图直传 S3，Lambda 异步处理派生图"]
+    }
+  ]
+}
