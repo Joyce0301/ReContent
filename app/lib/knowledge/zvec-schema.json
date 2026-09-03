@@ -1,0 +1,8 @@
+{
+  "collectionName": "recontent_knowledge",
+  "vector": {
+    "name": "embedding",
+    "dimension": 1536
+  },
+  "fields": ["kind", "text", "scope", "user_id", "platform", "draft_id"]
+}

@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getAuthSessionMock, listDraftsByUserIdMock, saveDraftForUserMock } = vi.hoisted(
+const {
+  getAuthSessionMock,
+  listDraftsByUserIdMock,
+  saveDraftForUserMock,
+  rememberDraftForUserMock
+} = vi.hoisted(
   () => ({
     getAuthSessionMock: vi.fn(),
     listDraftsByUserIdMock: vi.fn(),
-    saveDraftForUserMock: vi.fn()
+    saveDraftForUserMock: vi.fn(),
+    rememberDraftForUserMock: vi.fn()
   })
 );
 
@@ -18,6 +24,10 @@ vi.mock("../../lib/drafts/store", () => ({
   saveDraftForUser: saveDraftForUserMock
 }));
 
+vi.mock("../../lib/knowledge/store", () => ({
+  rememberDraftForUser: rememberDraftForUserMock
+}));
+
 import { GET, POST } from "./route";
 
 beforeEach(() => {
@@ -29,10 +39,11 @@ beforeEach(() => {
     },
     expiresAt: "2026-08-16T08:00:00.000Z"
   });
+  rememberDraftForUserMock.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 
 describe("/api/drafts", () => {
@@ -95,6 +106,73 @@ describe("/api/drafts", () => {
         activePlatform: null
       }
     });
+    expect(rememberDraftForUserMock).toHaveBeenCalledWith({
+      userId: "user-1",
+      draft: {
+        id: "draft-1",
+        name: "Draft"
+      }
+    });
+  });
+
+  it("still saves the draft response when knowledge indexing is skipped", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    saveDraftForUserMock.mockResolvedValue({
+      id: "draft-1",
+      name: "Draft"
+    });
+    rememberDraftForUserMock.mockResolvedValue(undefined);
+
+    const response = await POST(
+      new Request("http://localhost/api/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputMode: "text",
+          sourceText: "Draft body",
+          sourceUrl: "",
+          selectedPlatform: "twitter",
+          tone: "neutral",
+          customInstruction: "",
+          results: [],
+          activePlatform: null
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not wait for knowledge indexing before returning the saved draft", async () => {
+    saveDraftForUserMock.mockResolvedValue({
+      id: "draft-1",
+      name: "Draft"
+    });
+    rememberDraftForUserMock.mockImplementation(() => new Promise(() => {}));
+
+    const responseOrTimeout = await Promise.race([
+      POST(
+        new Request("http://localhost/api/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inputMode: "text",
+            sourceText: "Draft body",
+            sourceUrl: "",
+            selectedPlatform: "twitter",
+            tone: "neutral",
+            customInstruction: "",
+            results: [],
+            activePlatform: null
+          })
+        })
+      ),
+      new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 50))
+    ]);
+
+    expect(responseOrTimeout).not.toBe("timeout");
+    expect((responseOrTimeout as Response).status).toBe(200);
   });
 
   it("accepts a new draft save without sending draftId", async () => {

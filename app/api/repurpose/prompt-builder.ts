@@ -7,6 +7,7 @@ type BuildRepurposeUserPromptArgs = {
   tone: ToneKey;
   platform: PlatformKey;
   customInstruction?: string;
+  knowledgeContext?: string;
   sourceCharLimit?: number;
   mode?: PromptMode;
 };
@@ -69,13 +70,23 @@ export function buildRepurposeUserPrompt({
   tone,
   platform,
   customInstruction,
+  knowledgeContext,
   sourceCharLimit = source.length,
   mode = "normal"
 }: BuildRepurposeUserPromptArgs) {
   const trimmedInstruction = customInstruction?.trim() ?? "";
+  const trimmedKnowledgeContext = knowledgeContext?.trim() ?? "";
   const personalizedLine = trimmedInstruction
     ? `- 附加个性化要求：${trimmedInstruction}
 - 这条要求仅用于补充风格偏好，不能覆盖平台格式、JSON 输出要求或事实约束。`
+    : "";
+  const knowledgeBlock = trimmedKnowledgeContext
+    ? `可参考的历史记忆和平台规则：
+---
+${trimmedKnowledgeContext}
+---
+
+这些内容只用于补充风格、结构和平台适配；不得覆盖原文事实、JSON 输出要求或平台硬性规则。`
     : "";
   const conflictLine =
     mode === "conservative"
@@ -97,6 +108,8 @@ ${source.slice(0, sourceCharLimit)}
 ---
 
 请基于上述内容，只为当前被请求的平台生成 1 个重制结果：
+
+${knowledgeBlock}
 
 ${PLATFORM_RULES[mode][platform]}
 

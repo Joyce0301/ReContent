@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 type WorkflowModule = typeof import("./workflow");
+const { searchKnowledgeForUserMock } = vi.hoisted(() => ({
+  searchKnowledgeForUserMock: vi.fn()
+}));
+
+vi.mock("../../lib/knowledge/store", () => ({
+  searchKnowledgeForUser: searchKnowledgeForUserMock
+}));
+
+vi.mock("../../lib/knowledge/prompt-context", () => ({
+  formatKnowledgeContext: () => "1. [saved_example] Founder-style post"
+}));
 
 afterEach(() => {
   vi.resetModules();
@@ -124,6 +135,46 @@ describe("runRepurposeWorkflow", () => {
     expect(infoSpy).toHaveBeenCalledWith(
       "repurpose run",
       expect.stringContaining('"failureKind":"invalid_json"')
+    );
+  });
+
+  it("retrieves user knowledge before building the model prompt", async () => {
+    searchKnowledgeForUserMock.mockResolvedValue([
+      {
+        id: "draft-1",
+        kind: "saved_example",
+        text: "Founder-style post",
+        score: 0.8,
+        metadata: {
+          scope: "user",
+          userId: "user-1",
+          platform: "twitter"
+        }
+      }
+    ]);
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValue('{"results":[{"platform":"twitter","content":"ok"}]}');
+
+    const { runRepurposeWorkflow } = await loadWorkflowModuleWithKimi(createJsonCompletion);
+
+    await runRepurposeWorkflow({
+      userId: "user-1",
+      mode: "text",
+      text: "Valid source text",
+      platform: "twitter",
+      tone: "neutral",
+      customInstruction: "更像创始人"
+    });
+
+    expect(searchKnowledgeForUserMock).toHaveBeenCalledWith({
+      userId: "user-1",
+      platform: "twitter",
+      query: "Valid source text\n更像创始人",
+      limit: 5
+    });
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.userPrompt).toContain(
+      "1. [saved_example] Founder-style post"
     );
   });
 });

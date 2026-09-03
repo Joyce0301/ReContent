@@ -104,6 +104,7 @@ export async function POST(req: Request) {
 
   try {
     const result = await runRepurposeWorkflow({
+      userId: session.user.id,
       mode: body.mode,
       text: body.text,
       url: body.url,
