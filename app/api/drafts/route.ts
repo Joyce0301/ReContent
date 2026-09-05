@@ -3,6 +3,7 @@ import { getAuthSession, isAuthServiceError } from "../../lib/auth/session";
 import { readBoundedJson } from "../../lib/http/bounded-json";
 import { listDraftsByUserId, saveDraftForUser } from "../../lib/drafts/store";
 import type { WorkspaceDraftSnapshot } from "../../lib/drafts/types";
+import { rememberDraftForUser } from "../../lib/knowledge/store";
 
 type DraftRequestBody = WorkspaceDraftSnapshot & {
   draftId?: string;
@@ -156,6 +157,10 @@ export async function POST(request: Request) {
         results: body.results,
         activePlatform: body.activePlatform
       }
+    });
+
+    void rememberDraftForUser({ userId: session.user.id, draft }).catch(error => {
+      console.warn("knowledge indexing skipped", error);
     });
 
     return NextResponse.json({ draft });

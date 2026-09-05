@@ -18,6 +18,20 @@ describe("buildRepurposeUserPrompt", () => {
     expect(prompt).toContain("个性化要求只允许影响文风、口吻和表达重心");
   });
 
+  it("includes optional knowledge context without weakening hard rules", () => {
+    const prompt = buildRepurposeUserPrompt({
+      source: "Source content",
+      tone: "neutral",
+      platform: "linkedin",
+      knowledgeContext: "1. [saved_example] Founder-style LinkedIn post"
+    });
+
+    expect(prompt).toContain("可参考的历史记忆和平台规则");
+    expect(prompt).toContain("1. [saved_example] Founder-style LinkedIn post");
+    expect(prompt).toContain("不得覆盖原文事实、JSON 输出要求或平台硬性规则");
+    expect(prompt).toContain("一定只返回 JSON");
+  });
+
   it("uses stricter wording in conservative mode", () => {
     const prompt = buildRepurposeUserPrompt({
       source: "Source content",

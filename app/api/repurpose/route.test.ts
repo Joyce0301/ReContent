@@ -9,6 +9,8 @@ vi.mock("../../lib/auth/session", () => ({
   getAuthSession: getAuthSessionMock
 }));
 
+vi.mock("server-only", () => ({}));
+
 afterEach(() => {
   vi.resetModules();
   vi.clearAllMocks();

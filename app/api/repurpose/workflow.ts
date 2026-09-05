@@ -6,6 +6,8 @@ import {
 import { classifyFailure, compressCustomInstruction, decideRetryPlan } from "./failure-policy";
 import { createKimiClient } from "./kimi-client";
 import { buildRepurposeUserPrompt, type PromptMode } from "./prompt-builder";
+import { formatKnowledgeContext } from "../../lib/knowledge/prompt-context";
+import { searchKnowledgeForUser } from "../../lib/knowledge/store";
 
 export type PlatformKey = "twitter" | "linkedin" | "xiaohongshu";
 export type ToneKey = "neutral" | "formal" | "casual";
@@ -41,6 +43,7 @@ type RepurposeRunTrace = {
 };
 
 export type RunRepurposeWorkflowInput = {
+  userId?: string;
   mode: "text" | "url";
   text?: string;
   url?: string;
@@ -126,6 +129,12 @@ export async function runRepurposeWorkflow(
           input.platform,
           input.tone,
           input.customInstruction,
+          await loadKnowledgeContext({
+            userId: input.userId,
+            source: sourceContent,
+            platform: input.platform,
+            customInstruction: input.customInstruction
+          }),
           {
             mode: input.mode,
             targetPlatforms: [input.platform],
@@ -157,6 +166,7 @@ async function generateWithModel(
   platform: PlatformKey,
   tone: ToneKey,
   customInstruction?: string,
+  knowledgeContext?: string,
   traceSeed?: Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">
 ) {
   let attemptCount = 0;
@@ -174,6 +184,7 @@ async function generateWithModel(
         platform,
         tone,
         customInstruction,
+        knowledgeContext,
         mode
       });
 
@@ -261,6 +272,7 @@ async function generateAttempt(input: {
   platform: PlatformKey;
   tone: ToneKey;
   customInstruction?: string;
+  knowledgeContext?: string;
   mode: GenerationMode;
 }) {
   const { model, sourceCharLimit } = getProviderConfig(input.provider);
@@ -273,6 +285,7 @@ async function generateAttempt(input: {
     tone: input.tone,
     platform: input.platform,
     customInstruction: fallbackInstruction,
+    knowledgeContext: input.knowledgeContext,
     sourceCharLimit,
     mode: input.mode
   });
@@ -393,6 +406,26 @@ function getProviderConfig(provider: Exclude<AiProvider, "mock">): ProviderConfi
     model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     sourceCharLimit: 8000
   };
+}
+
+async function loadKnowledgeContext(input: {
+  userId?: string;
+  source: string;
+  platform: PlatformKey;
+  customInstruction?: string;
+}) {
+  if (!input.userId) {
+    return "";
+  }
+
+  const hits = await searchKnowledgeForUser({
+    userId: input.userId,
+    platform: input.platform,
+    query: [input.source, input.customInstruction].filter(Boolean).join("\n"),
+    limit: 5
+  });
+
+  return formatKnowledgeContext(hits);
 }
 
 export function toProviderErrorMessage(error: unknown): string | null {
