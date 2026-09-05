@@ -177,4 +177,21 @@ describe("runRepurposeWorkflow", () => {
       "1. [saved_example] Founder-style post"
     );
   });
+
+  it("uses the current Kimi default model when KIMI_MODEL is not configured", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValue('{"results":[{"platform":"twitter","content":"ok"}]}');
+
+    const { runRepurposeWorkflow } = await loadWorkflowModuleWithKimi(createJsonCompletion);
+
+    await runRepurposeWorkflow({
+      mode: "text",
+      text: "Valid source text",
+      platform: "twitter",
+      tone: "neutral"
+    });
+
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.model).toBe("kimi-k3");
+  });
 });

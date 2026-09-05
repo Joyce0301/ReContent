@@ -218,7 +218,7 @@ npm install
 OPENAI_API_KEY=sk-xxxxx
 KIMI_API_KEY=your-kimi-key
 OPENAI_MODEL=gpt-4.1-mini
-KIMI_MODEL=moonshot-v1-32k
+KIMI_MODEL=kimi-k3
 AUTH_SESSION_SECRET=replace-with-a-long-random-secret
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306

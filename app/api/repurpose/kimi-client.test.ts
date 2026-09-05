@@ -28,7 +28,7 @@ describe("createKimiClient", () => {
     });
 
     const content = await client.createJsonCompletion({
-      model: "moonshot-v1-32k",
+      model: "kimi-k3",
       systemPrompt: "system",
       userPrompt: "user"
     });
@@ -69,7 +69,7 @@ describe("createKimiClient", () => {
 
     await expect(
       client.createJsonCompletion({
-        model: "moonshot-v1-32k",
+        model: "kimi-k3",
         systemPrompt: "system",
         userPrompt: "user"
       })

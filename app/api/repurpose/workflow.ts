@@ -397,7 +397,7 @@ async function createOpenAiCompletion({
 function getProviderConfig(provider: Exclude<AiProvider, "mock">): ProviderConfig {
   if (provider === "kimi") {
     return {
-      model: process.env.KIMI_MODEL || "moonshot-v1-32k",
+      model: process.env.KIMI_MODEL || "kimi-k3",
       sourceCharLimit: 12000
     };
   }
