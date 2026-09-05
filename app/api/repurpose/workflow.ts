@@ -295,8 +295,7 @@ async function generateAttempt(input: {
     systemPrompt:
       input.mode === "conservative" ? CONSERVATIVE_SYSTEM_PROMPT : NORMAL_SYSTEM_PROMPT,
     userPrompt,
-    temperature:
-      input.mode === "conservative" ? CONSERVATIVE_TEMPERATURE : DEFAULT_TEMPERATURE
+    temperature: getTemperature(input.provider, model, input.mode)
   });
 
   if (!rawOutput) {
@@ -337,6 +336,18 @@ async function generateAttempt(input: {
     hasContent: true,
     results: parsedOutcome.parsed.results
   };
+}
+
+function getTemperature(
+  provider: Exclude<AiProvider, "mock">,
+  model: string,
+  mode: GenerationMode
+) {
+  if (provider === "kimi" && model === "kimi-k3") {
+    return 1;
+  }
+
+  return mode === "conservative" ? CONSERVATIVE_TEMPERATURE : DEFAULT_TEMPERATURE;
 }
 
 async function createModelCompletion({

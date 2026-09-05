@@ -194,4 +194,25 @@ describe("runRepurposeWorkflow", () => {
 
     expect(createJsonCompletion.mock.calls[0]?.[0]?.model).toBe("kimi-k3");
   });
+
+  it("uses Kimi K3's required temperature on normal and conservative attempts", async () => {
+    const createJsonCompletion = vi
+      .fn()
+      .mockResolvedValueOnce("not-json")
+      .mockResolvedValueOnce(
+        '{"results":[{"platform":"twitter","content":"workflow success"}]}'
+      );
+
+    const { runRepurposeWorkflow } = await loadWorkflowModuleWithKimi(createJsonCompletion);
+
+    await runRepurposeWorkflow({
+      mode: "text",
+      text: "Valid source text",
+      platform: "twitter",
+      tone: "neutral"
+    });
+
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.temperature).toBe(1);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(1);
+  });
 });

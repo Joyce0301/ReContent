@@ -376,8 +376,8 @@ describe("POST /api/repurpose retry policy", () => {
     expect(res.status).toBe(200);
     expect(data.results[0].platform).toBe("twitter");
     expect(createJsonCompletion).toHaveBeenCalledTimes(2);
-    expect(createJsonCompletion.mock.calls[0]?.[0]?.temperature).toBe(0.3);
-    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.3);
+    expect(createJsonCompletion.mock.calls[0]?.[0]?.temperature).toBe(1);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(1);
   });
 
   it("accepts the requested platform result even if extra non-target output is malformed", async () => {
@@ -475,7 +475,7 @@ describe("POST /api/repurpose retry policy", () => {
     expect(res.status).toBe(200);
     expect(data.results[0].content).toContain("conservative success");
     expect(createJsonCompletion).toHaveBeenCalledTimes(2);
-    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.15);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(1);
     expect(createJsonCompletion.mock.calls[1]?.[0]?.systemPrompt).toContain(
       "你必须返回合法 JSON"
     );
@@ -511,7 +511,7 @@ describe("POST /api/repurpose retry policy", () => {
     expect(res.status).toBe(200);
     expect(data.results[0].platform).toBe("xiaohongshu");
     expect(createJsonCompletion).toHaveBeenCalledTimes(2);
-    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(0.15);
+    expect(createJsonCompletion.mock.calls[1]?.[0]?.temperature).toBe(1);
     expect(createJsonCompletion.mock.calls[1]?.[0]?.userPrompt).toContain(
       "正文（约 300-600 字）"
     );
