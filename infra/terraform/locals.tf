@@ -17,6 +17,7 @@ locals {
     { name = "AWS_REGION", value = var.aws_region },
     { name = "MYSQL_SSL_MODE", value = "required" },
     { name = "PORT", value = "80" },
+    { name = "KIMI_MODEL", value = "kimi-k3" },
     { name = "MYSQL_HOST", value = var.mysql_host },
   ]
 

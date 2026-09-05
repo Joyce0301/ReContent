@@ -155,6 +155,7 @@ jobs:
           image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.image-meta.outputs.short-sha-tag }}
           environment-variables: |
             PORT=80
+            KIMI_MODEL=kimi-k3
 
       - name: Verify rendered avatar S3 task definition
         run: node scripts/verify-avatar-s3-prerequisites.mjs --rendered-task-definition "${{ steps.render-task-def.outputs.task-definition }}"
