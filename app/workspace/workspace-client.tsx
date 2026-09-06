@@ -25,6 +25,16 @@ type RepurposeErrorResponse = {
   errorDetail?: string;
 };
 
+function buildCampaignSource(campaign: Campaign) {
+  return [
+    `活动名称：${campaign.name}`,
+    `营销目标：${campaign.goal}`,
+    `目标受众：${campaign.audience}`,
+    `核心信息：${campaign.keyMessage}`,
+    campaign.cta && `行动号召：${campaign.cta}`
+  ].filter(Boolean).join("\n");
+}
+
 export default function WorkspacePageClient({ user }: WorkspacePageProps) {
   const [view, setView] = useState<"create" | "campaigns">("create");
   const [campaign, setCampaign] = useState<{ id: string; name: string } | null>(null);
@@ -135,14 +145,28 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
 
   function startCampaignContent(value: Campaign) {
     if (!invalidateDraftSnapshot()) return;
+    const sourceText = value.sourceText.trim() || (!value.sourceUrl.trim() ? buildCampaignSource(value) : "");
+    const nextInputMode: InputMode = sourceText ? "text" : "url";
+    const campaignSnapshot: WorkspaceDraftSnapshot = {
+      inputMode: nextInputMode,
+      sourceText,
+      sourceUrl: value.sourceUrl,
+      selectedPlatform,
+      tone,
+      customInstruction: "",
+      results: [],
+      activePlatform: null,
+      campaignId: value.id
+    };
     setCampaign({ id: value.id, name: value.name });
     setCampaignDirty(false);
     setView("create");
-    setSourceText(value.sourceText);
+    setSourceText(sourceText);
     setSourceUrl(value.sourceUrl);
-    setInputMode(value.sourceText || !value.sourceUrl ? "text" : "url");
+    setInputMode(nextInputMode);
     setCustomInstruction("");
     closeHistory();
+    void handleRepurpose(campaignSnapshot, true);
   }
 
   async function loadHistory(offset = 0) {
@@ -202,29 +226,32 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
     }
   }
 
-  async function handleRepurpose() {
-    if (!hasContent || !canLeaveResult()) return;
+  async function handleRepurpose(requestSnapshot: WorkspaceDraftSnapshot = snapshot, leaveCheckDone = false) {
+    const requestHasContent = Boolean((requestSnapshot.inputMode === "text" ? requestSnapshot.sourceText : requestSnapshot.sourceUrl).trim());
+    if (!requestHasContent || (!leaveCheckDone && !canLeaveResult())) return;
     busyRef.current = true;
     clearFeedback();
     setResults([]);
     setCurrentDraftId(null);
     setActivePlatform(null);
-    setSubmittedSource(inputMode === "text" ? sourceText : sourceUrl);
+    setSubmittedSource(requestSnapshot.inputMode === "text" ? requestSnapshot.sourceText : requestSnapshot.sourceUrl);
     setIsPending(true);
     try {
       const response = await fetch("/api/repurpose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: inputMode,
-          text: inputMode === "text" ? sourceText : undefined,
-          url: inputMode === "url" ? sourceUrl : undefined,
-          platforms: [selectedPlatform], tone, customInstruction, campaignId: campaign?.id ?? null
+          mode: requestSnapshot.inputMode,
+          text: requestSnapshot.inputMode === "text" ? requestSnapshot.sourceText : undefined,
+          url: requestSnapshot.inputMode === "url" ? requestSnapshot.sourceUrl : undefined,
+          platforms: [requestSnapshot.selectedPlatform], tone: requestSnapshot.tone,
+          customInstruction: requestSnapshot.customInstruction,
+          campaignId: requestSnapshot.campaignId
         })
       });
       if (!response.ok) {
         const data: RepurposeErrorResponse = await response.json().catch(() => ({}));
-        if (inputMode === "url" && data.errorCode === "url_extraction_failed" && data.errorTitle && data.errorDetail) {
+        if (requestSnapshot.inputMode === "url" && data.errorCode === "url_extraction_failed" && data.errorTitle && data.errorDetail) {
           setExtractionErrorDialog({ title: data.errorTitle, detail: data.errorDetail });
         }
         throw new Error(data.error || "生成失败，请稍后重试。");
@@ -237,7 +264,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
       setResults(data.results);
       setActivePlatform(platform);
       setIsPending(false);
-      await persistSnapshot({ ...snapshot, results: data.results, activePlatform: platform });
+      await persistSnapshot({ ...requestSnapshot, results: data.results, activePlatform: platform });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "发生未知错误");
     } finally {

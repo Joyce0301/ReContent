@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, FolderOpen, Plus, Save, SquarePen } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderOpen, Plus, Save, Sparkles, SquarePen } from "lucide-react";
 import { CAMPAIGN_LIMITS, type Campaign, type CampaignBrief } from "../lib/campaigns/types";
 import type { WorkspaceDraftRecord } from "../lib/drafts/types";
 
@@ -134,7 +134,7 @@ export function CampaignPanel({ initialId, onCreateContent, onOpenDraft, onDirty
     </form> : <>
       {campaign && <>
         <dl className="campaign-brief">{FIELDS.filter(field => field.key !== "name" && campaign[field.key]).map(({ key, label }) => <div key={key}><dt>{label}</dt><dd>{campaign[key]}</dd></div>)}</dl>
-        <div className="campaign-section-heading"><h2>活动稿件</h2><button className="campaign-action" disabled={loading} onClick={() => onCreateContent(campaign)}><Plus size={17} />创作内容</button></div>
+        <div className="campaign-section-heading"><h2>活动稿件</h2><button className="campaign-action" disabled={loading} onClick={() => onCreateContent(campaign)}><Sparkles size={17} />生成活动内容</button></div>
       </>}
       {!campaignId && <div className="campaign-list">{campaigns.map(item => <button className="campaign-row" key={item.id} disabled={loading} onClick={() => setCampaignId(item.id)}><FolderOpen size={20} /><span><strong>{item.name}</strong><small>{item.goal}</small></span><ArrowRight size={18} /></button>)}</div>}
       {campaignId && <div className="campaign-list">{drafts.map(draft => <button className="campaign-row" key={draft.id} onClick={() => onOpenDraft(draft)}><SquarePen size={18} /><span><strong>{draft.name}</strong><small>{new Date(draft.updatedAt).toLocaleDateString("zh-CN")}</small></span><ArrowRight size={18} /></button>)}</div>}

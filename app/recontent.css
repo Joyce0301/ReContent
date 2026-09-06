@@ -85,6 +85,12 @@
   border-bottom: 1px solid #dcdde2;
   background: #fff;
   box-shadow: 0 18px 28px rgba(19, 19, 46, 0.08);
+  animation: mega-menu-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+}
+@keyframes mega-menu-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .mega-menu-inner {
   display: grid;
@@ -913,6 +919,10 @@
   .faq-section {
     gap: 40px;
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mega-menu,
+  .mega-nav-trigger svg { animation: none; transition: none; }
 }
 @media (max-width: 760px) {
   .site-header {

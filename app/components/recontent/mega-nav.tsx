@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, ChevronDown, FileText, FolderOpen, Sparkles, Workflow, type LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type MenuLink = {
   title: string;
@@ -112,6 +112,24 @@ const menus: Menu[] = [
 
 export default function MegaNav() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  function cancelClose() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }
+
+  function open(label: string) {
+    cancelClose();
+    setOpenMenu(label);
+  }
+
+  function scheduleClose() {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => setOpenMenu(null), 180);
+  }
+
+  useEffect(() => () => cancelClose(), []);
 
   return (
     <nav className="desktop-nav" aria-label="主导航">
@@ -123,16 +141,17 @@ export default function MegaNav() {
           <div
             className="mega-nav-shell"
             key={menu.label}
-            onMouseEnter={() => setOpenMenu(menu.label)}
-            onMouseLeave={() => setOpenMenu(null)}
-            onFocus={() => setOpenMenu(menu.label)}
+            onMouseEnter={() => open(menu.label)}
+            onMouseLeave={scheduleClose}
+            onFocus={() => open(menu.label)}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) {
-                setOpenMenu(null);
+                scheduleClose();
               }
             }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
+                cancelClose();
                 setOpenMenu(null);
               }
             }}
@@ -142,7 +161,7 @@ export default function MegaNav() {
               className="mega-nav-trigger"
               aria-controls={menuId}
               aria-expanded={isOpen}
-              onClick={() => setOpenMenu(isOpen ? null : menu.label)}
+              onClick={() => isOpen ? setOpenMenu(null) : open(menu.label)}
             >
               {menu.label}
               <ChevronDown size={14} aria-hidden="true" />
