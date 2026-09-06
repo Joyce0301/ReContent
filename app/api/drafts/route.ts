@@ -102,6 +102,17 @@ async function requireSession() {
   return session;
 }
 
+function logStorageError(operation: "list" | "save", error: unknown) {
+  const failure = error as { name?: string; cause?: { code?: string; errno?: number } };
+  // MySQL error messages and SQL can contain draft text; log identifiers only.
+  console.error("draft storage unavailable", {
+    operation,
+    name: failure.name,
+    code: failure.cause?.code,
+    errno: failure.cause?.errno
+  });
+}
+
 export async function GET(request?: Request) {
   try {
     const session = await requireSession();
@@ -118,6 +129,7 @@ export async function GET(request?: Request) {
     return NextResponse.json({ drafts: drafts.slice(0, 20), nextOffset: drafts.length > 20 ? offset + 20 : null });
   } catch (error) {
     if (isAuthServiceError(error)) {
+      logStorageError("list", error);
       return NextResponse.json(
         { error: "草稿服务暂时不可用，请稍后再试。" },
         { status: 503 }
@@ -170,6 +182,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ draft });
   } catch (error) {
     if (isAuthServiceError(error)) {
+      logStorageError("save", error);
       return NextResponse.json(
         { error: "草稿服务暂时不可用，请稍后再试。" },
         { status: 503 }

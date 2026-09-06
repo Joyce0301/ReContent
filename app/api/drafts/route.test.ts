@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthStorageUnavailableError } from "../../lib/auth/errors";
 
 const {
   getAuthSessionMock,
@@ -16,7 +17,7 @@ const {
 
 vi.mock("../../lib/auth/session", () => ({
   getAuthSession: getAuthSessionMock,
-  isAuthServiceError: () => false
+  isAuthServiceError: (error: unknown) => error instanceof AuthStorageUnavailableError
 }));
 
 vi.mock("../../lib/drafts/store", () => ({
@@ -44,9 +45,33 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.resetAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("/api/drafts", () => {
+  it.each(["list", "save"])("logs safe diagnostics when draft %s storage fails", async operation => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = new AuthStorageUnavailableError("Database failed", {
+      cause: { code: "ER_NO_SUCH_TABLE", errno: 1146, sql: "private draft content", sqlMessage: "private database details" }
+    });
+    listDraftsByUserIdMock.mockRejectedValue(error);
+    saveDraftForUserMock.mockRejectedValue(error);
+
+    const response = operation === "list" ? await GET() : await POST(new Request("http://localhost/api/drafts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inputMode: "text", sourceText: "private draft content", sourceUrl: "", selectedPlatform: "twitter", tone: "neutral", customInstruction: "", results: [], activePlatform: null })
+    }));
+
+    expect(response.status).toBe(503);
+    expect(log).toHaveBeenCalledExactlyOnceWith("draft storage unavailable", {
+      operation, name: "AuthStorageUnavailableError", code: "ER_NO_SUCH_TABLE", errno: 1146
+    });
+    const exposed = JSON.stringify([log.mock.calls, await response.json()]);
+    expect(exposed).not.toContain("private draft content");
+    expect(exposed).not.toContain("private database details");
+  });
+
   it("lists drafts for the authenticated user", async () => {
     listDraftsByUserIdMock.mockResolvedValue([
       { id: "draft-1", name: "Draft", updatedAt: "2026-08-16T08:00:00.000Z" }
