@@ -22,6 +22,16 @@ jobs:
     name: Lint, Test and Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -ptest-only-password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
 
     steps:
       - name: Checkout repository
@@ -40,9 +50,15 @@ jobs:
         run: npm run lint
 
       - name: Test
+        env:
+          CAMPAIGN_TEST_DATABASE_URL: mysql://root:test-only-password@127.0.0.1:3306
         run: |
           npx vitest run \
             app/api/repurpose/*.test.ts \
+            app/api/campaigns/route.test.ts \
+            app/api/drafts/route.test.ts \
+            app/lib/campaigns/*.test.ts \
+            app/lib/drafts/*.test.ts \
             app/api/auth/*/route.test.ts \
             app/api/profile/avatar/route.test.ts \
             app/api/profile/avatar/upload-intent/route.test.ts \
@@ -56,6 +72,7 @@ jobs:
             app/page.test.tsx \
             scripts/verify-avatar-lambda-prerequisites.test.ts \
             scripts/verify-avatar-s3-prerequisites.test.ts \
+            scripts/*campaign*.test.ts \
             --exclude app/api/repurpose/content-extraction.live.test.ts
 
       # Keep this before Lambda install so ECS builds cannot depend on

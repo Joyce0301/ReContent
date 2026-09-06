@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Check, PanelLeft, RotateCcw, SquarePen, X } from "lucide-react";
+import { Check, FolderOpen, PanelLeft, RotateCcw, SquarePen, X } from "lucide-react";
 import "../recontent.css";
 import "./workspace.css";
 import { DraftShelf } from "../components/recontent/draft-shelf";
@@ -10,6 +10,8 @@ import { ExtractionErrorDialog } from "../components/recontent/extraction-error-
 import { RecontentHeader } from "../components/recontent/header";
 import { InputPanel } from "../components/recontent/input-panel";
 import { ResultSurface } from "../components/recontent/result-surface";
+import { CampaignPanel } from "./campaign-panel";
+import type { Campaign } from "../lib/campaigns/types";
 import type { WorkspaceDraftRecord, WorkspaceDraftSnapshot } from "../lib/drafts/types";
 import { buildXiaohongshuDraftPayload, sendDraftToXiaohongshuBridge } from "../lib/xiaohongshu-draft-bridge";
 import { DEFAULT_SELECTED_PLATFORM, type InputMode, type PlatformKey, type RepurposeResult, type ToneKey, type XiaohongshuDraftBridgeResult } from "../components/recontent/types";
@@ -24,6 +26,11 @@ type RepurposeErrorResponse = {
 };
 
 export default function WorkspacePageClient({ user }: WorkspacePageProps) {
+  const [view, setView] = useState<"create" | "campaigns">("create");
+  const [campaign, setCampaign] = useState<{ id: string; name: string } | null>(null);
+  const [campaignPageId, setCampaignPageId] = useState<string | null>(null);
+  const [campaignPageVersion, setCampaignPageVersion] = useState(0);
+  const [campaignDirty, setCampaignDirty] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("text");
   const [sourceText, setSourceText] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -56,10 +63,10 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
   const busy = isPending || isSavingDraft;
   const hasContent = Boolean((inputMode === "text" ? sourceText : sourceUrl).trim());
   const hasUnsavedResult = results.length > 0 && !currentDraftId;
-  const snapshot: WorkspaceDraftSnapshot = { inputMode, sourceText, sourceUrl, selectedPlatform, tone, customInstruction, results, activePlatform };
+  const snapshot: WorkspaceDraftSnapshot = { inputMode, sourceText, sourceUrl, selectedPlatform, tone, customInstruction, results, activePlatform, campaignId: campaign?.id ?? null };
 
   function canLeaveResult() {
-    return !busyRef.current && (!hasUnsavedResult || window.confirm("当前生成结果尚未保存，确定离开并放弃这份结果吗？"));
+    return !busyRef.current && (!(hasUnsavedResult || campaignDirty) || window.confirm("当前内容尚未保存，确定离开并放弃修改吗？"));
   }
 
   function clearFeedback() {
@@ -89,6 +96,9 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
 
   function newCreation() {
     if (!invalidateDraftSnapshot()) return;
+    setView("create");
+    setCampaign(null);
+    setCampaignDirty(false);
     setSourceText("");
     setSourceUrl("");
     setCustomInstruction("");
@@ -97,6 +107,9 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
 
   function loadDraftIntoWorkspace(draft: WorkspaceDraftRecord) {
     if (!canLeaveResult()) return;
+    setView("create");
+    setCampaignDirty(false);
+    setCampaign(draft.campaignId ? { id: draft.campaignId, name: draft.campaignName || "营销活动" } : null);
     setCurrentDraftId(draft.id);
     setInputMode(draft.inputMode);
     setSourceText(draft.sourceText);
@@ -108,6 +121,27 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
     setActivePlatform(draft.activePlatform ?? draft.results[0]?.platform ?? null);
     setSubmittedSource(draft.results.length ? (draft.inputMode === "url" ? draft.sourceUrl : draft.sourceText) : null);
     clearFeedback();
+    closeHistory();
+  }
+
+  function openCampaigns(id: string | null = null) {
+    if (!invalidateDraftSnapshot()) return;
+    setCampaignDirty(false);
+    setCampaignPageId(id);
+    setCampaignPageVersion(value => value + 1);
+    setView("campaigns");
+    closeHistory();
+  }
+
+  function startCampaignContent(value: Campaign) {
+    if (!invalidateDraftSnapshot()) return;
+    setCampaign({ id: value.id, name: value.name });
+    setCampaignDirty(false);
+    setView("create");
+    setSourceText(value.sourceText);
+    setSourceUrl(value.sourceUrl);
+    setInputMode(value.sourceText || !value.sourceUrl ? "text" : "url");
+    setCustomInstruction("");
     closeHistory();
   }
 
@@ -185,7 +219,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
           mode: inputMode,
           text: inputMode === "text" ? sourceText : undefined,
           url: inputMode === "url" ? sourceUrl : undefined,
-          platforms: [selectedPlatform], tone, customInstruction
+          platforms: [selectedPlatform], tone, customInstruction, campaignId: campaign?.id ?? null
         })
       });
       if (!response.ok) {
@@ -245,11 +279,11 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
     return () => window.clearTimeout(timeout);
   }, [copyFeedback]);
   useEffect(() => {
-    if (!hasUnsavedResult && !busy) return;
+    if (!hasUnsavedResult && !busy && !campaignDirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [hasUnsavedResult, busy]);
+  }, [hasUnsavedResult, busy, campaignDirty]);
 
   return (
     <div className="recontent-theme chat-layout" data-history-open={showHistory}
@@ -266,16 +300,17 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
         <button ref={closeHistoryRef} type="button" className="chat-icon-button chat-close-history" aria-label="关闭历史" title="关闭历史" onClick={closeHistory}><X size={20} aria-hidden="true" /></button>
         <RecontentHeader user={user}>
           <button type="button" className="chat-new" onClick={newCreation} disabled={busy}><SquarePen size={19} aria-hidden="true" />新建创作</button>
+          <button type="button" className="chat-history-item campaign-nav" aria-current={view === "campaigns" ? "page" : undefined} onClick={() => openCampaigns()} disabled={busy}><FolderOpen size={19} aria-hidden="true" />营销活动</button>
           <DraftShelf drafts={drafts} currentDraftId={currentDraftId} isLoading={isLoadingDrafts} disabled={busy} error={historyError} hasMore={nextOffset !== null} onLoadMore={() => void loadHistory(nextOffset ?? 0)} onLoadDraft={loadDraftIntoWorkspace} />
         </RecontentHeader>
       </aside>
       <main className="chat-main" id="workspace-content" tabIndex={-1}>
         <header className="chat-topbar">
           <button ref={openHistoryRef} type="button" className="chat-icon-button chat-open-history" aria-label="打开历史" title="打开历史" aria-controls="personal-history" aria-expanded={showHistory} onClick={() => setShowHistory(true)}><PanelLeft size={20} aria-hidden="true" /></button>
-          <span>创作工作区</span>
+          {view === "create" && campaign ? <button className="campaign-context" onClick={() => openCampaigns(campaign.id)} disabled={busy}><FolderOpen size={16} /><span>{campaign.name}</span></button> : <span>{view === "campaigns" ? "营销活动" : "创作工作区"}</span>}
           <span className="chat-topbar-label">ReContent</span>
         </header>
-        <div className="chat-stage" data-has-result={Boolean(submittedSource)}>
+        {view === "campaigns" ? <CampaignPanel key={campaignPageVersion} initialId={campaignPageId} onCreateContent={startCampaignContent} onOpenDraft={loadDraftIntoWorkspace} onDirtyChange={setCampaignDirty} /> : <div className="chat-stage" data-has-result={Boolean(submittedSource)}>
           {submittedSource ? (
             <div className="chat-conversation" ref={resultRef}>
               <details className="chat-source-message">
@@ -326,7 +361,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
             />
             <p className="chat-disclaimer">AI 生成内容，请在发布前核实。</p>
           </div>
-        </div>
+        </div>}
       </main>
       <ExtractionErrorDialog detail={extractionErrorDialog?.detail ?? ""} isOpen={Boolean(extractionErrorDialog)} title={extractionErrorDialog?.title ?? ""} onClose={() => setExtractionErrorDialog(null)} />
     </div>

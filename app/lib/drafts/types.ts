@@ -6,6 +6,7 @@ import type {
 } from "../../components/recontent/types";
 
 export type WorkspaceDraftSnapshot = {
+  campaignId?: string | null;
   inputMode: InputMode;
   sourceText: string;
   sourceUrl: string;
@@ -17,6 +18,7 @@ export type WorkspaceDraftSnapshot = {
 };
 
 export type WorkspaceDraftRecord = WorkspaceDraftSnapshot & {
+  campaignName?: string | null;
   id: string;
   name: string;
   createdAt: string;

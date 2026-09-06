@@ -14,8 +14,11 @@ import {
 } from "./workflow";
 import { getAuthSession } from "../../lib/auth/session";
 import { AuthConfigurationError, AuthStorageUnavailableError } from "../../lib/auth/errors";
+import { CampaignNotFoundError, requireCampaignForUser } from "../../lib/campaigns/store";
+import { isCampaignId } from "../../lib/campaigns/types";
 
 type RequestBody = {
+  campaignId?: string | null;
   mode: "text" | "url";
   text?: string;
   url?: string;
@@ -68,6 +71,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
   }
 
+  if (!body || typeof body !== "object" ||
+    (body.campaignId !== undefined && body.campaignId !== null && !isCampaignId(body.campaignId))) {
+    return NextResponse.json({ error: "请求参数不合法" }, { status: 400 });
+  }
+
   const requestedPlatform = normalizeRequestedPlatform(body.platforms);
   if (!requestedPlatform.value) {
     return NextResponse.json({ error: requestedPlatform.error }, { status: 400 });
@@ -103,7 +111,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    const campaign = body.campaignId ? await requireCampaignForUser(body.campaignId, session.user.id) : undefined;
     const result = await runRepurposeWorkflow({
+      ...(campaign ? { campaign } : {}),
       userId: session.user.id,
       mode: body.mode,
       text: body.text,
@@ -115,6 +125,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof CampaignNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof AuthConfigurationError || error instanceof AuthStorageUnavailableError) {
+      return NextResponse.json({ error: "活动服务暂时不可用，请稍后重试" }, { status: 503 });
+    }
     if (error instanceof UrlExtractionWorkflowError) {
       const extractionError = buildUrlExtractionError(error.diagnostics);
       return NextResponse.json(extractionError, { status: 400 });

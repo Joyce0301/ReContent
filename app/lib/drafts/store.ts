@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { queryAll, queryOne, execute } from "../auth/db";
+import { parseMysqlUtcDatetime } from "../auth/mysql-datetime";
 import type { WorkspaceDraftRecord, WorkspaceDraftSnapshot } from "./types";
+import { requireCampaignForUser } from "../campaigns/store";
 
 type DraftRow = RowDataPacket & {
   id: string;
   user_id: string;
+  campaign_id?: string | null;
+  campaign_name?: string | null;
   name: string;
   input_mode: WorkspaceDraftRecord["inputMode"];
   source_text: string;
@@ -60,13 +64,16 @@ function deriveDraftName(snapshot: WorkspaceDraftSnapshot) {
 }
 
 function toIsoString(value: Date | string) {
-  return new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : parseMysqlUtcDatetime(value).toISOString();
 }
 
 function mapDraftRow(row: DraftRow): WorkspaceDraftRecord {
   return {
     id: row.id,
     name: row.name,
+    ...(row.campaign_id ? { campaignId: row.campaign_id, campaignName: row.campaign_name ?? null } : {}),
     inputMode: row.input_mode,
     sourceText: row.source_text,
     sourceUrl: row.source_url,
@@ -80,16 +87,18 @@ function mapDraftRow(row: DraftRow): WorkspaceDraftRecord {
   };
 }
 
-export async function listDraftsByUserId(userId: string, offset = 0) {
+export async function listDraftsByUserId(userId: string, offset = 0, campaignId?: string) {
   const rows = await queryAll<DraftRow>(
     `SELECT id, user_id, name, input_mode, source_text, source_url,
             selected_platform, tone, custom_instruction, results_json,
-            active_platform, created_at, updated_at
+            active_platform, created_at, updated_at, campaign_id,
+            (SELECT name FROM campaigns WHERE id = drafts.campaign_id AND user_id = drafts.user_id) AS campaign_name
        FROM drafts
       WHERE user_id = ?
+      ${campaignId ? "AND campaign_id = ?" : ""}
       ORDER BY updated_at DESC, id DESC
       LIMIT 21 OFFSET ?`,
-    [userId, offset]
+    campaignId ? [userId, campaignId, offset] : [userId, offset]
   );
 
   return rows.map(mapDraftRow);
@@ -99,7 +108,8 @@ async function findDraftByIdForUser(draftId: string, userId: string) {
   const row = await queryOne<DraftRow>(
     `SELECT id, user_id, name, input_mode, source_text, source_url,
             selected_platform, tone, custom_instruction, results_json,
-            active_platform, created_at, updated_at
+            active_platform, created_at, updated_at, campaign_id,
+            (SELECT name FROM campaigns WHERE id = drafts.campaign_id AND user_id = drafts.user_id) AS campaign_name
        FROM drafts
       WHERE id = ? AND user_id = ?
       LIMIT 1`,
@@ -114,6 +124,7 @@ export async function saveDraftForUser(input: {
   userId: string;
   snapshot: WorkspaceDraftSnapshot;
 }) {
+  if (input.snapshot.campaignId) await requireCampaignForUser(input.snapshot.campaignId, input.userId);
   const draftId = input.draftId ?? randomUUID();
   const name = deriveDraftName(input.snapshot);
   const values = [
@@ -126,6 +137,8 @@ export async function saveDraftForUser(input: {
     input.snapshot.customInstruction,
     JSON.stringify(input.snapshot.results),
     input.snapshot.activePlatform,
+    input.snapshot.campaignId !== undefined,
+    input.snapshot.campaignId ?? null,
     draftId,
     input.userId
   ] as const;
@@ -141,6 +154,7 @@ export async function saveDraftForUser(input: {
             custom_instruction = ?,
             results_json = ?,
             active_platform = ?,
+            campaign_id = IF(?, ?, campaign_id),
             updated_at = UTC_TIMESTAMP()
       WHERE id = ? AND user_id = ?`,
     [...values]
@@ -161,8 +175,9 @@ export async function saveDraftForUser(input: {
           tone,
           custom_instruction,
           results_json,
-          active_platform
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          active_platform,
+          campaign_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         insertDraftId,
         input.userId,
@@ -174,7 +189,8 @@ export async function saveDraftForUser(input: {
         input.snapshot.tone,
         input.snapshot.customInstruction,
         JSON.stringify(input.snapshot.results),
-        input.snapshot.activePlatform
+        input.snapshot.activePlatform,
+        input.snapshot.campaignId ?? null
       ]
     );
 

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["@zvec/zvec"],
+  serverExternalPackages: ["@zvec/zvec", "mysql2"],
   output: "standalone"
 };
 

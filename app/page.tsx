@@ -8,6 +8,7 @@ import {
   Menu,
   Workflow
 } from "lucide-react";
+import MegaNav from "./components/recontent/mega-nav";
 import "./recontent.css";
 
 const capabilities = [
@@ -50,11 +51,7 @@ export default function RootPage() {
         <Link href="/" className="wordmark" aria-label="ReContent 首页">
           recontent.
         </Link>
-        <nav className="desktop-nav" aria-label="主导航">
-          <a href="#possibilities">产品</a>
-          <a href="#workflow">创作流程</a>
-          <a href="#questions">常见问题</a>
-        </nav>
+        <MegaNav />
         <div className="header-actions">
           <Link className="login-link" href="/auth">
             登录
