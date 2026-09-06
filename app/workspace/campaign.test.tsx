@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import Workspace from "./workspace-client";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-const campaign = { id: "11111111-1111-4111-8111-111111111111", name: "新品发布", goal: "试用注册", audience: "内容创作者", keyMessage: "复用已有文案", cta: "立即试用", sourceText: "真实产品资料", sourceUrl: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+const campaign = { id: "11111111-1111-4111-8111-111111111111", name: "新品发布", goal: "试用注册", audience: "内容创作者", keyMessage: "复用已有文案", cta: "立即试用", sourceText: "", sourceUrl: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
 
 it("creates an activity, generates an associated draft and restores it without generating again", async () => {
   let exists = false;
@@ -36,14 +36,15 @@ it("creates an activity, generates an associated draft and restores it without g
   fireEvent.click(screen.getByRole("button", { name: "保存活动" }));
   await screen.findByRole("heading", { name: campaign.name });
   await screen.findByText("还没有活动稿件");
-  fireEvent.click(screen.getByRole("button", { name: "创作内容" }));
-  expect((screen.getByLabelText("待重制的原始文本") as HTMLTextAreaElement).value).toBe(campaign.sourceText);
-  fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成活动内容" }));
+  expect((screen.getByLabelText("待重制的原始文本") as HTMLTextAreaElement).value).toContain("营销目标：试用注册");
   await screen.findByText("已保存到个人历史");
   for (const url of ["/api/repurpose", "/api/drafts"]) {
     const call = fetchMock.mock.calls.find(([path, init]) => path === url && init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body)).campaignId).toBe(campaign.id);
   }
+  const repurposeCall = fetchMock.mock.calls.find(([path]) => path === "/api/repurpose");
+  expect(JSON.parse(String(repurposeCall?.[1]?.body)).text).toContain("核心信息：复用已有文案");
   fireEvent.click(screen.getByRole("button", { name: campaign.name }));
   const panel = await screen.findByRole("region", { name: "营销活动" });
   fireEvent.click(await within(panel).findByRole("button", { name: /活动稿件标题/ }));

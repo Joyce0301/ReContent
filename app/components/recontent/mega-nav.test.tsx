@@ -7,7 +7,7 @@ import MegaNav from "./mega-nav";
 afterEach(cleanup);
 
 describe("MegaNav", () => {
-  it("opens a menu on hover and closes it when the pointer leaves", () => {
+  it("opens a menu on hover and closes it after the pointer leaves", async () => {
     render(<MegaNav />);
     const trigger = screen.getByRole("button", { name: "产品" });
     const shell = trigger.parentElement;
@@ -20,6 +20,8 @@ describe("MegaNav", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
     fireEvent.mouseLeave(shell!);
+    expect(screen.getByRole("heading", { name: "让一份内容，拥有更多表达方式。" })).toBeTruthy();
+    await new Promise(resolve => setTimeout(resolve, 200));
     expect(screen.queryByRole("heading", { name: "让一份内容，拥有更多表达方式。" })).toBeNull();
   });
 
