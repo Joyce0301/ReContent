@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import "../recontent.css";
 import { DraftShelf } from "../components/recontent/draft-shelf";
 import { ExtractionErrorDialog } from "../components/recontent/extraction-error-dialog";
 import { RecontentHeader } from "../components/recontent/header";
@@ -364,10 +365,15 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
 
   return (
     <>
-      <main className="poster-shell mx-auto flex min-h-screen w-full max-w-[1440px] flex-1 flex-col gap-7 px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
+      <div className="recontent-theme workspace-page">
+        <a className="skip-link" href="#workspace-content">跳到主要内容</a>
         <RecontentHeader user={user} />
-
-        <section className="grid flex-1 items-stretch gap-6 md:grid-cols-[minmax(0,0.94fr)_minmax(0,1.16fr)]">
+        <main className="workspace-body" id="workspace-content">
+        <div className="workspace-intro">
+          <div><p className="rc-eyebrow">YOUR CONTENT STUDIO</p><h1>让好内容，再出发。</h1></div>
+          <span>一个想法，更多表达。</span>
+        </div>
+        <section className="workspace-grid" aria-label="内容创作工作台">
           <InputPanel
             inputMode={inputMode}
             sourceText={sourceText}
@@ -392,6 +398,7 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
           />
 
           <ResultSurface
+            isPending={isPending}
             activePlatform={activePlatform}
             copyStatus={
               copyFeedback?.platform === activePlatform
@@ -415,11 +422,12 @@ export default function WorkspacePageClient({ user }: WorkspacePageProps) {
           onLoadDraft={loadDraftIntoWorkspace}
         />
 
-        <footer className="poster-frame mt-1 flex flex-wrap items-center justify-between gap-2 rounded-[24px] px-4 py-3 text-[11px] leading-5 text-[var(--ink-soft)]">
-          <span>支持文本与 URL 输入，并输出适配不同平台的发布版本。</span>
-          <span>保留清晰结构、平台语气与可直接复制的成稿视图。</span>
+        <footer className="workspace-footer">
+          <span>ReContent</span>
+          <span>AI 生成内容，请在发布前核实。</span>
         </footer>
       </main>
+      </div>
 
       <ExtractionErrorDialog
         detail={extractionErrorDialog?.detail ?? ""}

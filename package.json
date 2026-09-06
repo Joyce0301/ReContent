@@ -25,6 +25,7 @@
     "@opennextjs/cloudflare": "^1.17.1",
     "@zvec/zvec": "^0.7.0",
     "cheerio": "^1.2.0",
+    "lucide-react": "^1.41.0",
     "mysql2": "^3.23.1",
     "next": "16.1.6",
     "openai": "^4.57.0",

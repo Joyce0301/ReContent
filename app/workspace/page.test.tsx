@@ -30,6 +30,14 @@ describe("WorkspacePage client boundary", () => {
     WorkspaceClientMock.mockReset();
   });
 
+  it("still requires authentication before rendering the redesigned workspace", async () => {
+    getAuthSessionMock.mockResolvedValue(null);
+    redirectMock.mockImplementation(() => { throw new Error("redirect"); });
+    await expect(WorkspacePage()).rejects.toThrow("redirect");
+    expect(redirectMock).toHaveBeenCalledWith("/auth");
+    expect(WorkspaceClientMock).not.toHaveBeenCalled();
+  });
+
   it("passes only presentation-safe user fields to WorkspaceClient", async () => {
     getAuthSessionMock.mockResolvedValue({
       user: {

@@ -1,3 +1,4 @@
+import { Check, Copy, Send } from "lucide-react";
 import {
   PLATFORM_BADGES,
   PLATFORM_LABELS,
@@ -52,8 +53,8 @@ export function ResultDocument({
     draftStatus?.status === "bridge_unavailable";
 
   return (
-    <article className="flex h-full flex-col rounded-[28px] border-2 border-[var(--line)] bg-[rgba(255,250,238,0.92)] shadow-[5px_5px_0_rgba(23,18,15,0.84)]">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[var(--line)] px-5 py-4 sm:px-6 sm:py-5">
+    <article className="result-document">
+      <header>
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--ink-soft)]">
             <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-[var(--line)] bg-[var(--accent)] px-1 text-[10px] tracking-normal text-[var(--ink)]">
@@ -81,7 +82,7 @@ export function ResultDocument({
                 disabled={isSendingToDraft}
                 className="poster-button min-h-9 rounded-[16px] px-3.5 text-[11px] font-bold uppercase tracking-[0.06em]"
               >
-                发送到小红书草稿
+                <Send size={14} aria-hidden="true" />发送到小红书草稿
               </button>
             ) : null}
             <button
@@ -89,6 +90,7 @@ export function ResultDocument({
               onClick={() => onCopy(result.platform, copyText)}
               className="poster-button-ghost min-h-9 rounded-[16px] px-3.5 text-[11px] font-bold uppercase tracking-[0.06em]"
             >
+              {copyStatus === "success" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
               {copyStatus === "success"
                 ? "已复制"
                 : copyStatus === "error"
@@ -118,7 +120,7 @@ export function ResultDocument({
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto px-5 py-6 sm:px-6 sm:py-7">
+      <div className="result-content">
         <div
           className={`mx-auto flex ${documentWidthClass} flex-col gap-5 ${documentTypographyClass} text-[var(--ink)]`}
         >

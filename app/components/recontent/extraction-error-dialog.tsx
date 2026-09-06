@@ -23,7 +23,7 @@ export function ExtractionErrorDialog({
         aria-describedby="extraction-error-detail"
         aria-labelledby="extraction-error-title"
         aria-modal="true"
-        className="w-full max-w-md rounded-[28px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(241,245,249,0.96)_100%)] p-5 shadow-[0_24px_64px_rgba(15,23,42,0.22),inset_0_1px_0_rgba(255,255,255,0.94)] sm:p-6"
+        className="w-full max-w-md rounded-[4px] border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
         role="dialog"
       >
         <div className="flex items-start gap-3">
@@ -53,7 +53,7 @@ export function ExtractionErrorDialog({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] transition hover:border-slate-300 hover:text-slate-900"
+            className="inline-flex min-h-10 items-center justify-center border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-500 hover:text-slate-900"
           >
             知道了
           </button>
