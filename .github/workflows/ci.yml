@@ -9,14 +9,6 @@ on:
       - "docs/**"
       - "skills/**"
       - "AGENTS.md"
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "README.md"
-      - "docs/**"
-      - "skills/**"
-      - "AGENTS.md"
 
 permissions:
   contents: read
