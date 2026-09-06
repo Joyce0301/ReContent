@@ -68,15 +68,15 @@ describe("HomePage personalized prompt request", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the personalized prompt field and helper text", () => {
+  it("renders labeled platform, tone and personalized prompt controls", () => {
     render(<HomePage user={user} />);
 
     expect(screen.getByText("个性化要求")).toBeTruthy();
     expect(
-      screen.getByText("每次只生成 1 个平台版本，优先保证解析稳定和成稿质量。")
+      screen.getByRole("group", { name: "目标平台" })
     ).toBeTruthy();
     expect(
-      screen.getByText("补充你希望成稿更像什么风格、口吻或表达方向。")
+      screen.getByRole("group", { name: "语气风格" })
     ).toBeTruthy();
     expect(screen.getByLabelText("个性化要求输入框")).toBeTruthy();
   });
@@ -101,6 +101,26 @@ describe("HomePage personalized prompt request", () => {
     expect(String(findRepurposeRequest(fetchMock)?.[1]?.body)).toContain(
       '"platforms":["twitter"]'
     );
+  });
+
+  it("shows generation progress and restores the result view after completion", async () => {
+    let finish: (value: unknown) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/drafts") {
+        return { ok: true, json: async () => ({ drafts: [] }) };
+      }
+      return new Promise(resolve => { finish = resolve; });
+    }));
+    render(<HomePage user={user} />);
+    fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
+      target: { value: "A source article" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
+    expect(await screen.findByText("正在酝酿新的表达…")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "02阅读视图" }).getAttribute("aria-busy")).toBe("true");
+    finish({ ok: true, json: async () => ({ results: [{ platform: "twitter", content: "Generated draft" }] }) });
+    expect(await screen.findByText("Generated draft")).toBeTruthy();
+    expect(screen.queryByText("正在酝酿新的表达…")).toBeNull();
   });
 
   it("sends only the actively selected platform in the repurpose request body", async () => {
