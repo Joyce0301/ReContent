@@ -102,7 +102,7 @@ async function requireSession() {
   return session;
 }
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const session = await requireSession();
 
@@ -110,8 +110,12 @@ export async function GET() {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     }
 
-    const drafts = await listDraftsByUserId(session.user.id);
-    return NextResponse.json({ drafts });
+    const offset = Number(request ? new URL(request.url).searchParams.get("offset") ?? 0 : 0);
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      return NextResponse.json({ error: "历史分页参数不合法" }, { status: 400 });
+    }
+    const drafts = await listDraftsByUserId(session.user.id, offset);
+    return NextResponse.json({ drafts: drafts.slice(0, 20), nextOffset: drafts.length > 20 ? offset + 20 : null });
   } catch (error) {
     if (isAuthServiceError(error)) {
       return NextResponse.json(

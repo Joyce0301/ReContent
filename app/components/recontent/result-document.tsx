@@ -68,7 +68,7 @@ export function ResultDocument({
             </h3>
           ) : (
             <h3 className="mt-3 text-base font-medium text-[var(--ink-soft)] sm:text-lg">
-              可直接发布的正文草稿
+              正文
             </h3>
           )}
         </div>
