@@ -94,7 +94,7 @@
 .chat-layout .rc-segmented { background: #f3f4f4; padding: 3px; }
 .chat-layout .rc-segmented label { min-width: 80px; font-size: 12px; padding: 7px 12px; }
 .chat-layout .rc-segmented label:has(input:checked) { color: #242529; }
-.composer-source { display: block; width: 100%; min-height: 100px; height: 100px; max-height: 260px; padding: 16px 2px; border: 0; background: transparent; resize: vertical; font-size: 16px !important; line-height: 1.8 !important; box-shadow: none; }
+.composer-source { display: block; width: 100%; min-height: 100px; height: 100px; max-height: 260px; margin: 8px 0 12px; padding: 16px 2px; border: 0; background: transparent; resize: vertical; font-size: 16px !important; line-height: 1.8 !important; box-shadow: none; }
 .composer-source:focus-visible { outline: 0; }
 .composer-source::placeholder { color: #929496; }
 .composer-url { min-height: 100px; text-overflow: ellipsis; }
@@ -142,6 +142,35 @@
 .chat-save-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; border-radius: 4px; }
 .chat-save-error button { display: flex; align-items: center; gap: 6px; min-height: 32px; font-weight: 600; }
 .chat-close-history, .chat-open-history { display: none; }
+.campaign-nav { margin-top: 8px; }
+.campaign-context { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; }
+.campaign-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campaign-panel { overflow-y: auto; flex: 1; min-height: 0; padding: 28px 32px 64px; }
+.campaign-panel > * { max-width: 900px; margin-inline: auto; }
+.campaign-heading, .campaign-section-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.campaign-heading h1 { font-size: 26px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.campaign-heading > button:last-child:not(:first-child), .campaign-section-heading > button { margin-left: auto; flex-shrink: 0; }
+.campaign-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 10px 14px; background: #263d32; color: white; border-radius: 4px; font-size: 13px !important; }
+.campaign-action:hover { background: #355843; }
+.campaign-form fieldset { border: 0; padding: 0; display: grid; gap: 22px; min-width: 0; }
+.campaign-form label { display: grid; gap: 8px; font-size: 14px; }
+.campaign-form small { color: #737579; font-size: 12px; }
+.campaign-form input, .campaign-form textarea { width: 100%; min-width: 0; border: 1px solid #dcdfe1; border-radius: 4px; background: white; padding: 12px; font-size: 15px; line-height: 1.6; }
+.campaign-form textarea { resize: vertical; }
+.campaign-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 24px; margin-top: 28px; }
+.campaign-brief { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 40px; border-block: 1px solid var(--line); padding-block: 24px; margin-bottom: 36px; }
+.campaign-brief > div { min-width: 0; }
+.campaign-brief > div:last-child { grid-column: 1 / -1; }
+.campaign-brief dt { font-size: 12px; color: #737579; margin-bottom: 8px; }
+.campaign-brief dd { margin: 0; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+.campaign-section-heading h2 { font-size: 17px; font-weight: 600; }
+.campaign-row { display: flex; gap: 16px; align-items: center; width: 100%; min-height: 80px; padding: 18px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.campaign-row:hover { background: #f6f8f7; }
+.campaign-row > svg { flex-shrink: 0; color: #5a7062; }
+.campaign-row > span { min-width: 0; flex: 1; display: grid; gap: 6px; }
+.campaign-row strong { font-size: 15px; overflow-wrap: anywhere; font-weight: 500; }
+.campaign-row small { font-size: 12px; color: #737579; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campaign-empty { color: #737579; font-size: 14px; padding-block: 40px; text-align: center; }
 @media (min-width: 1600px) {
   .chat-layout { grid-template-columns: 280px minmax(0, 1fr); }
 }
@@ -152,6 +181,10 @@
   .composer-send { margin-left: auto; }
 }
 @media (max-width: 760px) {
+  .campaign-panel { padding: 20px 16px 48px; }
+  .campaign-heading h1 { font-size: 22px; }
+  .campaign-heading { flex-wrap: wrap; }
+  .campaign-brief { grid-template-columns: 1fr; gap: 20px; }
   .chat-layout { display: block; }
   .chat-sidebar { display: none; }
   .chat-layout[data-history-open="true"] .chat-sidebar { display: block; width: 100%; border: 0; }

@@ -6,6 +6,7 @@ lambda/avatar-processor/dist
 !.next/standalone/**
 !.next/static
 !.next/static/**
+!.next/migrate-campaigns.cjs
 .git
 .gitignore
 README.md

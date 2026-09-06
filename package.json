@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && npm run build:migration",
+    "build:migration": "esbuild scripts/migrate-campaigns.ts --bundle --platform=node --packages=external --outfile=.next/migrate-campaigns.cjs",
+    "migrate:campaigns": "node .next/migrate-campaigns.cjs",
     "verify:avatar-lambda": "node scripts/verify-avatar-lambda-prerequisites.mjs",
     "verify:xiaohongshu-draft": "npm run lint && npx vitest run app/page.test.tsx app/xiaohongshu-draft-debug/page.test.tsx app/lib/xiaohongshu-draft-bridge.test.ts app/api/repurpose/*.test.ts extensions/xiaohongshu-draft-bridge/xiaohongshu-fill.test.ts extensions/xiaohongshu-draft-bridge/manifest.test.ts extensions/xiaohongshu-draft-bridge/service-worker.test.ts && npm run build",
     "verify:xiaohongshu-draft:cdp": "node scripts/verify-xiaohongshu-draft-cdp.mjs",

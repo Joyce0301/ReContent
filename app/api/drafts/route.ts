@@ -4,6 +4,8 @@ import { readBoundedJson } from "../../lib/http/bounded-json";
 import { listDraftsByUserId, saveDraftForUser } from "../../lib/drafts/store";
 import type { WorkspaceDraftSnapshot } from "../../lib/drafts/types";
 import { rememberDraftForUser } from "../../lib/knowledge/store";
+import { CampaignNotFoundError, requireCampaignForUser } from "../../lib/campaigns/store";
+import { isCampaignId } from "../../lib/campaigns/types";
 
 type DraftRequestBody = WorkspaceDraftSnapshot & {
   draftId?: string;
@@ -47,6 +49,7 @@ function validateDraftBody(value: unknown): DraftRequestBody | null {
   }
 
   const body = value as Record<string, unknown>;
+  if (body.campaignId !== undefined && body.campaignId !== null && !isCampaignId(body.campaignId)) return null;
 
   if (
     body.draftId !== undefined &&
@@ -80,6 +83,7 @@ function validateDraftBody(value: unknown): DraftRequestBody | null {
   }
 
   return {
+    ...(body.campaignId !== undefined ? { campaignId: body.campaignId as string | null } : {}),
     draftId: body.draftId,
     inputMode: body.inputMode,
     sourceText: body.sourceText,
@@ -125,9 +129,15 @@ export async function GET(request?: Request) {
     if (!Number.isSafeInteger(offset) || offset < 0) {
       return NextResponse.json({ error: "历史分页参数不合法" }, { status: 400 });
     }
-    const drafts = await listDraftsByUserId(session.user.id, offset);
+    const campaignId = request ? new URL(request.url).searchParams.get("campaignId") : null;
+    if (campaignId !== null && !isCampaignId(campaignId)) return NextResponse.json({ error: "活动 ID 不合法" }, { status: 400 });
+    if (campaignId) await requireCampaignForUser(campaignId, session.user.id);
+    const drafts = campaignId
+      ? await listDraftsByUserId(session.user.id, offset, campaignId)
+      : await listDraftsByUserId(session.user.id, offset);
     return NextResponse.json({ drafts: drafts.slice(0, 20), nextOffset: drafts.length > 20 ? offset + 20 : null });
   } catch (error) {
+    if (error instanceof CampaignNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
     if (isAuthServiceError(error)) {
       logStorageError("list", error);
       return NextResponse.json(
@@ -164,6 +174,7 @@ export async function POST(request: Request) {
       draftId: body.draftId,
       userId: session.user.id,
       snapshot: {
+        ...(body.campaignId !== undefined ? { campaignId: body.campaignId } : {}),
         inputMode: body.inputMode,
         sourceText: body.sourceText,
         sourceUrl: body.sourceUrl,
@@ -181,6 +192,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ draft });
   } catch (error) {
+    if (error instanceof CampaignNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
     if (isAuthServiceError(error)) {
       logStorageError("save", error);
       return NextResponse.json(

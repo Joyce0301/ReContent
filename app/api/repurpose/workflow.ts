@@ -8,6 +8,7 @@ import { createKimiClient } from "./kimi-client";
 import { buildRepurposeUserPrompt, type PromptMode } from "./prompt-builder";
 import { formatKnowledgeContext } from "../../lib/knowledge/prompt-context";
 import { searchKnowledgeForUser } from "../../lib/knowledge/store";
+import type { CampaignBrief } from "../../lib/campaigns/types";
 
 export type PlatformKey = "twitter" | "linkedin" | "xiaohongshu";
 export type ToneKey = "neutral" | "formal" | "casual";
@@ -43,6 +44,7 @@ type RepurposeRunTrace = {
 };
 
 export type RunRepurposeWorkflowInput = {
+  campaign?: CampaignBrief;
   userId?: string;
   mode: "text" | "url";
   text?: string;
@@ -139,7 +141,8 @@ export async function runRepurposeWorkflow(
             mode: input.mode,
             targetPlatforms: [input.platform],
             hasCustomInstruction: Boolean(input.customInstruction?.length)
-          }
+          },
+          input.campaign
         );
 
   return { results };
@@ -167,7 +170,8 @@ async function generateWithModel(
   tone: ToneKey,
   customInstruction?: string,
   knowledgeContext?: string,
-  traceSeed?: Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">
+  traceSeed?: Pick<RepurposeRunTrace, "mode" | "targetPlatforms" | "hasCustomInstruction">,
+  campaign?: CampaignBrief
 ) {
   let attemptCount = 0;
   let mode: GenerationMode = "normal";
@@ -185,6 +189,7 @@ async function generateWithModel(
         tone,
         customInstruction,
         knowledgeContext,
+        campaign,
         mode
       });
 
@@ -267,6 +272,7 @@ async function generateWithModel(
 }
 
 async function generateAttempt(input: {
+  campaign?: CampaignBrief;
   provider: Exclude<AiProvider, "mock">;
   source: string;
   platform: PlatformKey;
@@ -286,6 +292,7 @@ async function generateAttempt(input: {
     platform: input.platform,
     customInstruction: fallbackInstruction,
     knowledgeContext: input.knowledgeContext,
+    campaign: input.campaign,
     sourceCharLimit,
     mode: input.mode
   });
