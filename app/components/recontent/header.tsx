@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { LogoutButton } from "./logout-button";
 
@@ -9,21 +10,16 @@ export type RecontentHeaderUser = {
 
 type RecontentHeaderProps = {
   user: RecontentHeaderUser;
+  children?: ReactNode;
 };
 
-export function RecontentHeader({ user }: RecontentHeaderProps) {
+export function RecontentHeader({ user, children }: RecontentHeaderProps) {
   return (
     <header className="site-header">
       <Link href="/" className="wordmark" aria-label="ReContent 首页">
         recontent.
       </Link>
-      <nav className="workspace-nav" aria-label="工作台导航">
-        <Link href="/workspace" aria-current="page">
-          创作工作台
-        </Link>
-        <a href="#drafts">我的草稿</a>
-        <Link href="/">探索 ReContent</Link>
-      </nav>
+      {children}
       <div className="workspace-account">
         <Link
           href="/profile"

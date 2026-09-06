@@ -56,8 +56,24 @@ describe("/api/drafts", () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(listDraftsByUserIdMock).toHaveBeenCalledWith("user-1");
+    expect(listDraftsByUserIdMock).toHaveBeenCalledWith("user-1", 0);
     expect(data.drafts).toHaveLength(1);
+    expect(data.nextOffset).toBeNull();
+  });
+
+  it("paginates personal history without accepting a client-supplied user id", async () => {
+    listDraftsByUserIdMock.mockResolvedValue(Array.from({ length: 21 }, (_, i) => ({ id: `draft-${i}` })));
+    const response = await GET(new Request("http://localhost/api/drafts?offset=20&userId=someone-else"));
+    const data = await response.json();
+    expect(listDraftsByUserIdMock).toHaveBeenCalledWith("user-1", 20);
+    expect(data.drafts).toHaveLength(20);
+    expect(data.nextOffset).toBe(40);
+  });
+
+  it.each(["-1", "1.5", "no", "Infinity", "9007199254740992"])("rejects invalid history offset %s", async offset => {
+    const response = await GET(new Request(`http://localhost/api/drafts?offset=${offset}`));
+    expect(response.status).toBe(400);
+    expect(listDraftsByUserIdMock).not.toHaveBeenCalled();
   });
 
   it("returns 401 when listing drafts without a session", async () => {
@@ -79,6 +95,7 @@ describe("/api/drafts", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          userId: "another-user",
           inputMode: "text",
           sourceText: "Draft body",
           sourceUrl: "",

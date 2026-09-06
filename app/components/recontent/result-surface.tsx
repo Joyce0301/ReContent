@@ -41,7 +41,7 @@ export function ResultSurface({
     >
       <div className="panel-heading">
         <h2 id="result-heading">
-          <span className="step-number">02</span>阅读视图
+          ReContent
         </h2>
         <span
           className={isPending ? "result-label pending" : "result-label"}

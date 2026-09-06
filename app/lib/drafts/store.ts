@@ -30,6 +30,10 @@ function trimToLength(value: string, maxLength: number) {
 }
 
 function deriveDraftName(snapshot: WorkspaceDraftSnapshot) {
+  const result = snapshot.results.find(item => item.platform === snapshot.activePlatform) ?? snapshot.results[0];
+  const generatedTitle = result?.title?.trim() || result?.content.split("\n").map(line => line.trim()).find(Boolean);
+  if (generatedTitle) return trimToLength(generatedTitle, 80);
+
   if (snapshot.inputMode === "url" && snapshot.sourceUrl.trim()) {
     try {
       const url = new URL(snapshot.sourceUrl.trim());
@@ -76,16 +80,16 @@ function mapDraftRow(row: DraftRow): WorkspaceDraftRecord {
   };
 }
 
-export async function listDraftsByUserId(userId: string) {
+export async function listDraftsByUserId(userId: string, offset = 0) {
   const rows = await queryAll<DraftRow>(
     `SELECT id, user_id, name, input_mode, source_text, source_url,
             selected_platform, tone, custom_instruction, results_json,
             active_platform, created_at, updated_at
        FROM drafts
       WHERE user_id = ?
-      ORDER BY updated_at DESC
-      LIMIT 20`,
-    [userId]
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 21 OFFSET ?`,
+    [userId, offset]
   );
 
   return rows.map(mapDraftRow);

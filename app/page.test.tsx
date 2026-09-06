@@ -40,6 +40,12 @@ describe("HomePage personalized prompt request", () => {
       const url = String(input);
 
       if (url === "/api/drafts") {
+        if (init?.method === "POST") {
+          return { ok: true, json: async () => ({ draft: {
+            ...JSON.parse(String(init.body)), id: "saved-draft", name: "已保存的创作",
+            createdAt: "2026-09-06T01:00:00Z", updatedAt: "2026-09-06T01:00:00Z"
+          } }) };
+        }
         return {
           ok: true,
           json: async () => ({ drafts: [] })
@@ -69,8 +75,10 @@ describe("HomePage personalized prompt request", () => {
   });
 
   it("renders labeled platform, tone and personalized prompt controls", () => {
+    vi.stubGlobal("fetch", createWorkspaceFetchMock({ results: [] }));
     render(<HomePage user={user} />);
 
+    fireEvent.click(screen.getByText("写作偏好"));
     expect(screen.getByText("个性化要求")).toBeTruthy();
     expect(
       screen.getByRole("group", { name: "目标平台" })
@@ -117,7 +125,7 @@ describe("HomePage personalized prompt request", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
     expect(await screen.findByText("正在酝酿新的表达…")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "02阅读视图" }).getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("region", { name: "ReContent" }).getAttribute("aria-busy")).toBe("true");
     finish({ ok: true, json: async () => ({ results: [{ platform: "twitter", content: "Generated draft" }] }) });
     expect(await screen.findByText("Generated draft")).toBeTruthy();
     expect(screen.queryByText("正在酝酿新的表达…")).toBeNull();
@@ -133,7 +141,7 @@ describe("HomePage personalized prompt request", () => {
     fireEvent.change(screen.getByLabelText("待重制的原始文本"), {
       target: { value: "A valid source article" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "小红书笔记" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "目标平台" }), { target: { value: "xiaohongshu" } });
     fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
 
     await waitFor(() => expect(findRepurposeRequest(fetchMock)).toBeTruthy());
@@ -405,7 +413,7 @@ describe("HomePage personalized prompt request", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "开始重制" }));
 
-    await screen.findByText("LinkedIn 帖子");
+    await screen.findByRole("heading", { name: "正文" });
     expect(
       screen.queryByRole("button", { name: "发送到小红书草稿" })
     ).toBeNull();
