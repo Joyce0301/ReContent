@@ -58,8 +58,8 @@ describe("draft store", () => {
         customInstruction: "更像创始人发言",
         results: [{ platform: "twitter", content: "result" }],
         activePlatform: "twitter",
-        createdAt: "2026-08-16T02:00:00.000Z",
-        updatedAt: "2026-08-16T04:00:00.000Z"
+        createdAt: "2026-08-16T10:00:00.000Z",
+        updatedAt: "2026-08-16T12:00:00.000Z"
       }
     ]);
     expect(queryAllMock).toHaveBeenCalledWith(expect.stringContaining("WHERE user_id = ?"), ["user-1", 20]);

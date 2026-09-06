@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { queryAll, queryOne, execute } from "../auth/db";
+import { parseMysqlUtcDatetime } from "../auth/mysql-datetime";
 import type { WorkspaceDraftRecord, WorkspaceDraftSnapshot } from "./types";
 import { requireCampaignForUser } from "../campaigns/store";
 
@@ -63,7 +64,9 @@ function deriveDraftName(snapshot: WorkspaceDraftSnapshot) {
 }
 
 function toIsoString(value: Date | string) {
-  return new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : parseMysqlUtcDatetime(value).toISOString();
 }
 
 function mapDraftRow(row: DraftRow): WorkspaceDraftRecord {
