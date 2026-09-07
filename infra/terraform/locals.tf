@@ -9,6 +9,8 @@ locals {
   ecs_execution_role_arn   = "arn:aws:iam::${var.aws_account_id}:role/service-role/ecsTaskExecutionRole"
   ecs_cluster_arn          = "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:cluster/${var.ecs_cluster_name}"
   github_oidc_provider_arn = "arn:aws:iam::${var.aws_account_id}:oidc-provider/${var.github_oidc_provider_url}"
+  mysql_host               = var.mysql_host != "" ? var.mysql_host : aws_db_instance.recontent.address
+  rds_secret_arn           = var.rds_secret_arn != "" ? var.rds_secret_arn : aws_db_instance.recontent.master_user_secret[0].secret_arn
 
   app_environment = [
     { name = "AVATAR_S3_BUCKET", value = var.avatar_bucket_name },
@@ -18,7 +20,7 @@ locals {
     { name = "MYSQL_SSL_MODE", value = "required" },
     { name = "PORT", value = "80" },
     { name = "KIMI_MODEL", value = "kimi-k3" },
-    { name = "MYSQL_HOST", value = var.mysql_host },
+    { name = "MYSQL_HOST", value = local.mysql_host },
   ]
 
   app_secrets = [
@@ -36,11 +38,11 @@ locals {
     },
     {
       name      = "MYSQL_PASSWORD"
-      valueFrom = "${var.rds_secret_arn}:password::"
+      valueFrom = "${local.rds_secret_arn}:password::"
     },
     {
       name      = "MYSQL_USER"
-      valueFrom = "${var.rds_secret_arn}:username::"
+      valueFrom = "${local.rds_secret_arn}:username::"
     },
   ]
 }

@@ -26,18 +26,19 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || '881424867096' }}
       ECR_REPOSITORY: recontent
       ECS_CLUSTER: default
       ECS_SERVICE: recontent-b13f
       ECS_CONTAINER_NAME: Main
-      AVATAR_S3_BUCKET: recontent-avatar-pipeline-20260726
-      EXPECTED_AVATAR_RUNTIME_REGION: us-east-1
-      EXPECTED_AVATAR_TASK_ROLE_ARN: arn:aws:iam::881424867096:role/recontent-ecs-task-role
+      AVATAR_S3_BUCKET: ${{ vars.AVATAR_S3_BUCKET || 'recontent-avatar-pipeline-20260726' }}
+      EXPECTED_AVATAR_RUNTIME_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      EXPECTED_AVATAR_TASK_ROLE_ARN: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID || '881424867096' }}:role/recontent-ecs-task-role
       AVATAR_TASK_ROLE_NAME: recontent-ecs-task-role
       AVATAR_TASK_POLICY_NAME: recontent-avatar-originals-access
       GITHUB_DEPLOY_ROLE_NAME: github-actions-recontent-deploy
-      AVATAR_ALLOWED_ORIGIN: https://re-6718725ab2374d34942ac6eee4abd640.ecs.us-east-1.on.aws
+      AVATAR_ALLOWED_ORIGIN: ${{ vars.AVATAR_ALLOWED_ORIGIN || 'https://re-6718725ab2374d34942ac6eee4abd640.ecs.us-east-1.on.aws' }}
 
     steps:
       - name: Checkout repository
@@ -69,7 +70,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::881424867096:role/github-actions-recontent-deploy
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GITHUB_DEPLOY_ROLE_NAME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Verify avatar S3 deployment prerequisites
