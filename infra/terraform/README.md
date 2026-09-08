@@ -40,6 +40,10 @@ It is still intentionally conservative:
   checkout is safe to apply without first reviewing the import plan.
 - The ALB listener and ECS Express-managed traffic routing are still unmanaged
   and should be treated as external prerequisites.
+- This is an import-first configuration for the current account. It is not a
+  portable target-account stack while `imports.tf` is present; use the target
+  account example and the [account migration runbook](../../docs/operations/aws-account-migration.md)
+  when moving to another AWS account.
 
 ## Remote backend setup
 
@@ -76,7 +80,8 @@ already-existing AWS resources instead of trying to recreate them.
 ## Safe usage rules for now
 
 1. Always run `terraform plan` before `terraform apply`.
-2. Use only AWS account `881424867096` in `us-east-1`.
+2. Pass the intended account and region explicitly for a migration; the current
+   defaults remain `881424867096` in `us-east-1` for existing production.
 3. Do not store secret values in Terraform code or variables checked into git.
 4. Keep `github-actions-recontent-deploy` managed policy attachments
    (`AmazonEC2ContainerRegistryPowerUser`, `AmazonEC2FullAccess`,
@@ -84,6 +89,13 @@ already-existing AWS resources instead of trying to recreate them.
    replacement is tested.
 5. Expect ECS service drift around task definition revisions because deploys are
    still handled by GitHub Actions.
+
+## New-account configuration
+
+`target-account.tfvars.example` lists the account-specific values that must be
+replaced in a target account. It intentionally contains no credentials or
+secret values. The current `imports.tf` must not be used against the target
+account; follow the migration runbook for a clean target copy.
 
 ## Resource coverage in this phase
 

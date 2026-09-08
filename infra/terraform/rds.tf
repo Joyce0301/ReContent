@@ -54,7 +54,7 @@ resource "aws_db_instance" "recontent" {
   backup_window                       = "03:54-04:24"
   maintenance_window                  = "sun:10:08-sun:10:38"
   copy_tags_to_snapshot               = true
-  monitoring_interval                 = 60
+  monitoring_interval                 = var.rds_monitoring_role_arn == null ? 0 : 60
   monitoring_role_arn                 = var.rds_monitoring_role_arn
   auto_minor_version_upgrade          = true
   deletion_protection                 = false

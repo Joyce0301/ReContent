@@ -1,3 +1,8 @@
+# These import blocks adopt the currently running production account only.
+# Do not apply this file against a new account: the IDs below belong to the
+# source account. For a new account, use a copy of this directory without
+# imports.tf and provide target-account.tfvars values.
+
 import {
   to = aws_s3_bucket.terraform_state
   id = "recontent-terraform-state-881424867096-us-east-1"

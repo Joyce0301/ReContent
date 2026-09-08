@@ -1,0 +1,46 @@
+# Copy to target-account.tfvars, replace every <...> value, and keep the copy
+# out of git. This file is for a new AWS account, not the current-account
+# adoption imports in imports.tf.
+
+aws_account_id = "<target-account-id>"
+aws_region     = "us-east-1"
+
+terraform_state_bucket_name = "recontent-terraform-state-<target-account-id>-us-east-1"
+terraform_lock_table_name   = "recontent-terraform-locks"
+
+container_image = "<target-account-id>.dkr.ecr.us-east-1.amazonaws.com/recontent:latest"
+
+# These network resources must exist before applying this Phase 1 stack.
+vpc_id                       = "<target-vpc-id>"
+ecs_service_subnet_ids       = ["<target-subnet-a>", "<target-subnet-b>"]
+ecs_service_security_group_ids = ["<target-ecs-security-group-id>"]
+default_vpc_security_group_id  = "<target-rds-security-group-id>"
+alb_security_group_id          = "<target-alb-security-group-id>"
+mysql_test_ec2_security_group_id = "<target-test-ec2-security-group-id>"
+temporary_mysql_admin_cidr       = "<target-admin-cidr>/32"
+
+# These values come from the target ALB/target groups after they are created.
+alb_arn                   = "<target-alb-arn>"
+alb_arn_suffix            = "<target-alb-arn-suffix>"
+target_group_blue_arn     = "<target-blue-target-group-arn>"
+target_group_blue_arn_suffix = "<target-blue-target-group-arn-suffix>"
+target_group_green_arn    = "<target-green-target-group-arn>"
+target_group_green_arn_suffix = "<target-green-target-group-arn-suffix>"
+
+avatar_bucket_name = "recontent-avatar-pipeline-<target-account-id>"
+mysql_host         = ""
+rds_instance_identifier  = "database-recontent-login"
+rds_db_subnet_group_name = "recontent-db-subnets"
+rds_secret_arn           = ""
+
+# The target account can use AWS-managed keys until customer-managed KMS
+# keys and an enhanced-monitoring role are deliberately created there.
+rds_master_user_secret_kms_key_id = null
+rds_storage_kms_key_id            = null
+rds_monitoring_role_arn           = null
+
+# Keep these names stable so the app and GitHub Actions use the same contract.
+ecs_cluster_name   = "default"
+ecs_service_name   = "recontent-b13f"
+ecs_task_family    = "default-recontent-b13f"
+ecs_container_name = "Main"
